@@ -1,0 +1,9 @@
+###################################################################################################
+#  MOD-CUSTOM-CLASSES SETTINGS
+#
+#   ModCustomClasses.Enabled
+#       Description: Enable or disable the custom classes module.
+#       Default:    true  - (enabled)
+#                   false - (disabled)
+#
+ModCustomClasses.Enabled = true
