@@ -25,13 +25,22 @@ class DBC:
     records: list[bytes]
     string_block: bytearray
 
+    @property
+    def field_width(self) -> int:
+        """Número de campos int32 reais por registro.
+
+        O header de alguns DBCs (ex.: CharStartOutfit) informa field_count
+        inconsistente; record_size é a fonte de verdade.
+        """
+        return self.record_size // 4
+
     def int32(self, record: bytes) -> list[int]:
         """Interpreta um registro como int32 little-endian."""
-        return list(struct.unpack(f"<{self.field_count}i", record))
+        return list(struct.unpack(f"<{self.field_width}i", record))
 
     def pack_int32(self, values: list[int]) -> bytes:
         """Serializa valores int32 little-endian no tamanho de um registro."""
-        return struct.pack(f"<{self.field_count}i", *values)
+        return struct.pack(f"<{self.field_width}i", *values)
 
 
 def read_dbc(path: Path) -> DBC:
@@ -64,9 +73,15 @@ def write_dbc(dbc: DBC) -> None:
 
 
 def add_string(string_block: bytearray, s: str) -> int:
-    """Anexa uma string null-terminated ao bloco e retorna seu offset."""
+    """Anexa (ou reutiliza) uma string null-terminated e retorna seu offset."""
+    encoded = s.encode("utf-8") + b"\x00"
+    offset = string_block.find(encoded)
+    while offset != -1 and offset != 0 and string_block[offset - 1] != 0:
+        offset = string_block.find(encoded, offset + 1)
+    if offset != -1:
+        return offset
     offset = len(string_block)
-    string_block.extend(s.encode("utf-8") + b"\x00")
+    string_block.extend(encoded)
     return offset
 
 
@@ -78,7 +93,8 @@ def resolve_string(string_block: bytearray, offset: int) -> str:
 
 
 def backup(path: Path) -> Path:
-    """Copia o arquivo para <nome>.bak e retorna o caminho do backup."""
+    """Copia o arquivo para <nome>.dbc.bak (preserva o backup original)."""
     dest = Path(path).with_suffix(".dbc.bak")
-    shutil.copy2(path, dest)
+    if not dest.exists():
+        shutil.copy2(path, dest)
     return dest
