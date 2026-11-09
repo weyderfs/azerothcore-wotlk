@@ -135,44 +135,41 @@ enum Classes
     //CLASS_UNK           = 10,
     CLASS_DRUID         = 11, // TITLE Druid
     // Custom classes — Avalon set (21 classes, IDs 12–32)
-    CLASS_AVALON_1      = 12, // TITLE Avalon Class 1
-    CLASS_AVALON_2      = 13, // TITLE Avalon Class 2
-    CLASS_AVALON_3      = 14, // TITLE Avalon Class 3
-    CLASS_AVALON_4      = 15, // TITLE Avalon Class 4
-    CLASS_AVALON_5      = 16, // TITLE Avalon Class 5
-    CLASS_AVALON_6      = 17, // TITLE Avalon Class 6
-    CLASS_AVALON_7      = 18, // TITLE Avalon Class 7
-    CLASS_AVALON_8      = 19, // TITLE Avalon Class 8
-    CLASS_AVALON_9      = 20, // TITLE Avalon Class 9
-    CLASS_AVALON_10     = 21, // TITLE Avalon Class 10
-    CLASS_AVALON_11     = 22, // TITLE Avalon Class 11
-    CLASS_AVALON_12     = 23, // TITLE Avalon Class 12
-    CLASS_AVALON_13     = 24, // TITLE Avalon Class 13
-    CLASS_AVALON_14     = 25, // TITLE Avalon Class 14
-    CLASS_AVALON_15     = 26, // TITLE Avalon Class 15
-    CLASS_AVALON_16     = 27, // TITLE Avalon Class 16
-    CLASS_AVALON_17     = 28, // TITLE Avalon Class 17
-    CLASS_AVALON_18     = 29, // TITLE Avalon Class 18
-    CLASS_AVALON_19     = 30, // TITLE Avalon Class 19
-    CLASS_AVALON_20     = 31, // TITLE Avalon Class 20
-    CLASS_AVALON_21     = 32, // TITLE Avalon Class 21
+    CLASS_AVALON_BARBARIAN       = 12, // TITLE Barbarian
+    CLASS_AVALON_BLOODMAGE       = 13, // TITLE Bloodmage
+    CLASS_AVALON_CHRONOMANCER    = 14, // TITLE Chronomancer
+    CLASS_AVALON_CULTIST         = 15, // TITLE Cultist
+    CLASS_AVALON_FELSWORN        = 16, // TITLE Felsworn
+    CLASS_AVALON_GUARDIAN        = 17, // TITLE Guardian
+    CLASS_AVALON_KNIGHT_OF_XOROTH = 18, // TITLE Knight of Xoroth
+    CLASS_AVALON_NECROMANCER     = 19, // TITLE Necromancer
+    CLASS_AVALON_PRIMALIST       = 20, // TITLE Primalist
+    CLASS_AVALON_PYROMANCER      = 21, // TITLE Pyromancer
+    CLASS_AVALON_RANGER          = 22, // TITLE Ranger
+    CLASS_AVALON_REAPER          = 23, // TITLE Reaper
+    CLASS_AVALON_RUNEMASTER      = 24, // TITLE Runemaster
+    CLASS_AVALON_STARCALLER      = 25, // TITLE Starcaller
+    CLASS_AVALON_STORMBRINGER    = 26, // TITLE Stormbringer
+    CLASS_AVALON_SUN_CLERIC      = 27, // TITLE Sun Cleric
+    CLASS_AVALON_TEMPLAR         = 28, // TITLE Templar
+    CLASS_AVALON_TINKER          = 29, // TITLE Tinker
+    CLASS_AVALON_VENOMANCER      = 30, // TITLE Venomancer
+    CLASS_AVALON_WITCH_DOCTOR    = 31, // TITLE Witch Doctor
+    CLASS_AVALON_WITCH_HUNTER    = 32, // TITLE Witch Hunter
 };
 
 // max+1 for player class — 64 gives room for future classes beyond Avalon's 21
 #define MAX_CLASSES       64
+
+// Avalon classes occupy class IDs 12–32 (bits 11–31), a contiguous block
+#define CLASSMASK_AVALON_CLASSES (0xFFFFFFFFu << (CLASS_AVALON_BARBARIAN - 1))
 
 #define CLASSMASK_ALL_PLAYABLE \
     ((1<<(CLASS_WARRIOR-1))|(1<<(CLASS_PALADIN-1))|(1<<(CLASS_HUNTER-1))| \
     (1<<(CLASS_ROGUE-1))  |(1<<(CLASS_PRIEST-1)) |(1<<(CLASS_SHAMAN-1))| \
     (1<<(CLASS_MAGE-1))   |(1<<(CLASS_WARLOCK-1))|(1<<(CLASS_DRUID-1)) | \
     (1<<(CLASS_DEATH_KNIGHT-1))| \
-    (1<<(CLASS_AVALON_1-1))|(1<<(CLASS_AVALON_2-1))|(1<<(CLASS_AVALON_3-1))| \
-    (1<<(CLASS_AVALON_4-1))|(1<<(CLASS_AVALON_5-1))|(1<<(CLASS_AVALON_6-1))| \
-    (1<<(CLASS_AVALON_7-1))|(1<<(CLASS_AVALON_8-1))|(1<<(CLASS_AVALON_9-1))| \
-    (1<<(CLASS_AVALON_10-1))|(1<<(CLASS_AVALON_11-1))|(1<<(CLASS_AVALON_12-1))| \
-    (1<<(CLASS_AVALON_13-1))|(1<<(CLASS_AVALON_14-1))|(1<<(CLASS_AVALON_15-1))| \
-    (1<<(CLASS_AVALON_16-1))|(1<<(CLASS_AVALON_17-1))|(1<<(CLASS_AVALON_18-1))| \
-    (1<<(CLASS_AVALON_19-1))|(1<<(CLASS_AVALON_20-1))|(1<<(CLASS_AVALON_21-1)))
+    CLASSMASK_AVALON_CLASSES)
 
 // valid classes for creature_template.unit_class
 #define CLASSMASK_ALL_CREATURES ((1<<(CLASS_WARRIOR-1)) | (1<<(CLASS_PALADIN-1)) | (1<<(CLASS_ROGUE-1)) | (1<<(CLASS_MAGE-1)))

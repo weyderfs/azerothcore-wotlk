@@ -19,7 +19,7 @@
 #define MOD_AVALON_CLASSES_H
 
 /// Primeira classe Avalon (ID 12, conforme Fase 2 do plano)
-#define AVALON_CLASS_ID CLASS_AVALON_1
+#define AVALON_CLASS_ID CLASS_AVALON_BARBARIAN
 
 /// Nome interno da classe Avalon
 #define AVALON_CLASS_NAME "AvalonClass"
