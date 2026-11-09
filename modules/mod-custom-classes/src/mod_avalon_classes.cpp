@@ -18,13 +18,13 @@
 #include "PlayerScript.h"
 #include "Log.h"
 
-#include "mod_custom_classes.h"
+#include "mod_avalon_classes.h"
 
-class ModCustomClasses : public PlayerScript
+class ModAvalonClasses : public PlayerScript
 {
 public:
-    ModCustomClasses() :
-        PlayerScript("ModCustomClasses",
+    ModAvalonClasses() :
+        PlayerScript("ModAvalonClasses",
         {
             PLAYERHOOK_ON_LOGIN,
         })
@@ -33,25 +33,25 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
-        HandleCustomClass(player);
+        HandleAvalonClass(player);
     }
 
 private:
-    /// Verifica se o jogador tem a classe customizada e aplica passivas/inicialização
-    void HandleCustomClass(Player* player)
+    /// Verifica se o jogador tem a classe Avalon e aplica passivas/inicialização
+    void HandleAvalonClass(Player* player)
     {
-        if (!player || player->getClass() != CUSTOM_CLASS_ID)
+        if (!player || player->getClass() != AVALON_CLASS_ID)
             return;
 
-        LOG_INFO("mod.custom.classes", "Player {} ({}) has custom class ID {}, applying initialization",
-            player->GetName(), player->GetGUIDLow(), CUSTOM_CLASS_ID);
+        LOG_INFO("mod.avalon.classes", "Player {} ({}) has Avalon class ID {}, applying initialization",
+            player->GetName(), player->GetGUIDLow(), AVALON_CLASS_ID);
 
-        // Aqui serão aplicadas as passivas, equipamento inicial e atributos da classe customizada
+        // Aqui serão aplicadas as passivas, equipamento inicial e atributos da classe Avalon
         // quando a Fase 2 (DBCs) e a injeção de SQL estiverem concluídas
     }
 };
 
-void AddSC_mod_custom_classes()
+void AddSC_mod_avalon_classes()
 {
-    new ModCustomClasses();
+    new ModAvalonClasses();
 }

@@ -15,13 +15,13 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef MOD_CUSTOM_CLASSES_H
-#define MOD_CUSTOM_CLASSES_H
+#ifndef MOD_AVALON_CLASSES_H
+#define MOD_AVALON_CLASSES_H
 
-/// ID da classe customizada (conforme Fase 2 do plano)
-#define CUSTOM_CLASS_ID 12
+/// Primeira classe Avalon (ID 12, conforme Fase 2 do plano)
+#define AVALON_CLASS_ID CLASS_AVALON_1
 
-/// Nome interno da classe customizada
-#define CUSTOM_CLASS_NAME "CustomClass"
+/// Nome interno da classe Avalon
+#define AVALON_CLASS_NAME "AvalonClass"
 
 #endif
