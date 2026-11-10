@@ -17,9 +17,6 @@
 set(MODULE_NAME mod-custom-classes)
 MESSAGE(STATUS "Configuring module: ${MODULE_NAME}")
 
-# Collect all source files from src/
-CollectSourceFiles(${CMAKE_CURRENT_SOURCE_DIR}/src PRIVATE_SOURCES_MODULES)
-CollectIncludeDirectories(${CMAKE_CURRENT_SOURCE_DIR} PUBLIC_INCLUDES)
-
 # Register this module as a static module
+# The parent modules/CMakeLists.txt will collect sources via CollectSourceFiles
 list(APPEND STATIC_SCRIPT_MODULES ${MODULE_NAME})

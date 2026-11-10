@@ -17,6 +17,8 @@
 
 #include "PlayerScript.h"
 #include "Log.h"
+#include "Player.h"
+#include "Config.h"
 
 #include "mod_avalon_classes.h"
 
@@ -29,6 +31,7 @@ public:
             PLAYERHOOK_ON_LOGIN,
         })
     {
+        LOG_INFO("module", "ModCustomClasses module loaded successfully");
     }
 
     void OnPlayerLogin(Player* player) override
@@ -43,15 +46,15 @@ private:
         if (!player || player->getClass() != AVALON_CLASS_ID)
             return;
 
-        LOG_INFO("mod.avalon.classes", "Player {} ({}) has Avalon class ID {}, applying initialization",
-            player->GetName(), player->GetGUIDLow(), AVALON_CLASS_ID);
+        LOG_INFO("module", "Player {} ({}) has Avalon class ID {}, applying initialization",
+            player->GetName(), player->GetGUID().ToString(), AVALON_CLASS_ID);
 
         // Aqui serão aplicadas as passivas, equipamento inicial e atributos da classe Avalon
         // quando a Fase 2 (DBCs) e a injeção de SQL estiverem concluídas
     }
 };
 
-void AddSC_mod_avalon_classes()
+void Addmod_custom_classesScripts()
 {
     new ModAvalonClasses();
 }
