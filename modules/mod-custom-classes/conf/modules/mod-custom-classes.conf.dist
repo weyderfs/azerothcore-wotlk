@@ -7,3 +7,12 @@
 #                   false - (disabled)
 #
 ModCustomClasses.Enabled = true
+
+###################################################################################################
+#  AVALON PROTOCOL PROBE
+#
+#   Envia AVALON_SMSG_PROBE (0x0A00) para sessoes conectadas ainda no char select.
+#   Serve para provar o caminho servidor -> extensao de cliente. Desligar em producao.
+#
+Avalon.Probe.Enable = true
+Avalon.Probe.Interval = 5000

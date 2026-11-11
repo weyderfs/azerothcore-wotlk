@@ -16,9 +16,13 @@
  */
 
 #include "PlayerScript.h"
+#include "WorldScript.h"
 #include "Log.h"
 #include "Player.h"
 #include "Config.h"
+#include "WorldPacket.h"
+#include "WorldSession.h"
+#include "WorldSessionMgr.h"
 
 #include "mod_avalon_classes.h"
 
@@ -54,7 +58,56 @@ private:
     }
 };
 
+/// Probe do protocolo: envia AVALON_SMSG_PROBE para sessoes no char select.
+/// Prova que o cliente com avalon-ext.dll recebe um opcode fora do range stock.
+class ModAvalonProbe : public WorldScript
+{
+public:
+    ModAvalonProbe() :
+        WorldScript("ModAvalonProbe", { WORLDHOOK_ON_UPDATE })
+    {
+        _enabled = sConfigMgr->GetOption<bool>("Avalon.Probe.Enable", true);
+        _interval = sConfigMgr->GetOption<uint32>("Avalon.Probe.Interval", 5000);
+        LOG_INFO("module", "ModAvalonProbe {} (interval {} ms)",
+            _enabled ? "enabled" : "disabled", _interval);
+    }
+
+    void OnUpdate(uint32 diff) override
+    {
+        if (!_enabled)
+            return;
+
+        _timer += diff;
+        if (_timer < _interval)
+            return;
+        _timer = 0;
+
+        for (auto const& pair : sWorldSessionMgr->GetAllSessions())
+        {
+            WorldSession* session = pair.second;
+            if (!session || session->IsSocketClosed() || session->GetPlayer())
+                continue;
+
+            std::string const text = "AVALON-PROBE";
+            WorldPacket packet(AVALON_SMSG_PROBE, 8 + text.size());
+            packet << uint32(text.size());
+            packet.append(text.data(), text.size());
+            packet << uint32(++_counter);
+            session->SendPacket(&packet);
+
+            LOG_INFO("module", "avalon probe #{} enviado para session {}", _counter, pair.first);
+        }
+    }
+
+private:
+    bool _enabled = true;
+    uint32 _interval = 5000;
+    uint32 _timer = 0;
+    uint32 _counter = 0;
+};
+
 void Addmod_custom_classesScripts()
 {
     new ModAvalonClasses();
+    new ModAvalonProbe();
 }

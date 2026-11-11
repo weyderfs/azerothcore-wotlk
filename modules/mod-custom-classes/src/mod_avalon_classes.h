@@ -24,4 +24,8 @@
 /// Nome interno da classe Avalon
 #define AVALON_CLASS_NAME "AvalonClass"
 
+/// Opcode de probe do protocolo Avalon (fora do range stock 0x0000-0x051E).
+/// Usado para provar o caminho servidor -> avalon-ext.dll (gate, prova 3).
+#define AVALON_SMSG_PROBE 0x0A00
+
 #endif
