@@ -47,3 +47,7 @@ local.properties
 .loadpath
 .project
 .cproject
+
+# Python bytecode cache (re-ignore after the "!*" above)
+__pycache__/
+*.py[cod]

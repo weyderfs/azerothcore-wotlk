@@ -97,7 +97,7 @@ class Reader(object):
         elif whence == os.SEEK_END:
             offset += self._file.unpacked_size
         else:
-            raise ValueError, "invalid whence"
+            raise ValueError("invalid whence")
         
         if offset >= self._pos:
             self.read(offset - self._pos)
@@ -258,7 +258,7 @@ class Archive(object):
             item = data.value
         else:
             if not 0 <= item < self.files:
-                raise IndexError, "file not in archive"
+                raise IndexError("file not in archive")
         return File(self, item)
     
     def __repr__(self):
@@ -270,22 +270,22 @@ del os, check_error, ctypes, errors, File, libmpq, Reader
 if __name__ == "__main__":
     import sys, random
     archive = Archive(sys.argv[1])
-    print repr(archive)
-    for k, v in archive.__dict__.iteritems():
+    print(repr(archive))
+    for k, v in archive.__dict__.items():
         #if k[0] == '_': continue
-        print " " * (4 - 1), k, v
+        print(" " * (4 - 1), k, v)
     assert '(listfile)' in archive
     assert 0 in archive
     assert len(archive) == archive.files
     files = [x.strip() for x in archive['(listfile)']]
-    files.extend(xrange(archive.files))
-    for key in files: #sys.argv[2:] if sys.argv[2:] else xrange(archive.files):
+    files.extend(range(archive.files))
+    for key in files: #sys.argv[2:] if sys.argv[2:] else range(archive.files):
         file = archive[key]
-        print
-        print " " * (4 - 1), repr(file)
-        for k, v in file.__dict__.iteritems():
+        print()
+        print(" " * (4 - 1), repr(file))
+        for k, v in file.__dict__.items():
             #if k[0] == '_': continue
-            print " " * (8 - 1), k, v
+            print(" " * (8 - 1), k, v)
         
         a = str(file)
         
