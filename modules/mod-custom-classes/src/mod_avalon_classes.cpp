@@ -24,6 +24,10 @@
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
 
+#include <sstream>
+#include <string>
+#include <vector>
+
 #include "mod_avalon_classes.h"
 
 class ModAvalonClasses : public PlayerScript
@@ -106,8 +110,59 @@ private:
     uint32 _counter = 0;
 };
 
+/// Bloodmage (class 13): concede o conjunto inicial de spells.
+/// Lista em config (`Avalon.Bloodmage.StarterSpells`), aplicada no login e
+/// idempotente (hasSpell antes de aprender).
+class ModAvalonBloodmage : public PlayerScript
+{
+public:
+    ModAvalonBloodmage() :
+        PlayerScript("ModAvalonBloodmage", { PLAYERHOOK_ON_LOGIN })
+    {
+        _enabled = sConfigMgr->GetOption<bool>("Avalon.Bloodmage.Enable", true);
+        _spells = ParseSpells(sConfigMgr->GetOption<std::string>("Avalon.Bloodmage.StarterSpells",
+            "133,116,686,1454,172"));
+        LOG_INFO("module", "ModAvalonBloodmage {} ({} spells)", _enabled ? "enabled" : "disabled", _spells.size());
+    }
+
+    void OnPlayerLogin(Player* player) override
+    {
+        if (!_enabled || !player || player->getClass() != 13)
+            return;
+
+        uint32 learned = 0;
+        for (uint32 spellId : _spells)
+        {
+            if (player->HasSpell(spellId))
+                continue;
+            player->learnSpell(spellId, false);
+            ++learned;
+        }
+        if (learned)
+            LOG_INFO("module", "Bloodmage {} aprendeu {} spells iniciais", player->GetName(), learned);
+    }
+
+private:
+    static std::vector<uint32> ParseSpells(std::string const& csv)
+    {
+        std::vector<uint32> out;
+        std::stringstream stream(csv);
+        std::string token;
+        while (std::getline(stream, token, ','))
+        {
+            try { out.push_back(static_cast<uint32>(std::stoul(token))); }
+            catch (...) { }
+        }
+        return out;
+    }
+
+    bool _enabled = true;
+    std::vector<uint32> _spells;
+};
+
 void Addmod_custom_classesScripts()
 {
     new ModAvalonClasses();
     new ModAvalonProbe();
+    new ModAvalonBloodmage();
 }

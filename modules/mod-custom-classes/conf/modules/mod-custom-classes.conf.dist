@@ -16,3 +16,11 @@ ModCustomClasses.Enabled = true
 #
 Avalon.Probe.Enable = true
 Avalon.Probe.Interval = 5000
+
+###################################################################################################
+#  BLOODMAGE (class 13)
+#
+#  Spells iniciais concedidos no login. Idempotente (hasSpell antes de aprender).
+#
+Avalon.Bloodmage.Enable = true
+Avalon.Bloodmage.StarterSpells = "133,116,686,1454,172"
