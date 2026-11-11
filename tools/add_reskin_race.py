@@ -27,7 +27,9 @@ BLOODELF_RACE = 1 << 9                                                  # 512
 
 RACES = {
     "high_elf": {
-        "new_id": 22,
+        # Racas custom acima de 21 crasham o cliente 3.3.5a stock; 12 (slot
+        # Fel Orc) e o menor ID livre e o unico validado em teste.
+        "new_id": 12,
         "base_id": 10,       # Blood Elf: modelo + customização
         "name": "High Elf",
         "alliance": 0,       # 0 = Aliança
