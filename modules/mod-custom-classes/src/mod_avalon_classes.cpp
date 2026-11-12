@@ -24,6 +24,7 @@
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
 #include "SpellAuras.h"
+#include "SpellMgr.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
 
@@ -215,7 +216,6 @@ public:
     {
         _enabled = sConfigMgr->GetOption<bool>("Avalon.Bloodmage.HealOnKill.Enable", true);
         _percent = sConfigMgr->GetOption<uint32>("Avalon.Bloodmage.HealOnKill.Percent", 5);
-        _aura = sConfigMgr->GetOption<uint32>("Avalon.Bloodmage.HealOnKill.AuraSpell", 90000);
         LOG_INFO("module", "ModAvalonBloodmageMechanic {} ({}% do HP por abate)",
             _enabled ? "enabled" : "disabled", _percent);
     }
@@ -249,20 +249,6 @@ public:
         log << uint8(0);
         killer->SendMessageToSet(&log, true);
 
-        // Blood Shards: empilha 1 por abate (max definido no Spell.dbc).
-        if (_aura)
-        {
-            Aura* shards = killer->GetAura(_aura);
-            if (!shards)
-                shards = killer->AddAura(_aura, killer);
-            if (shards)
-            {
-                shards->ModStackAmount(shards->GetStackAmount() + 1);
-                LOG_INFO("module", "Bloodmage {} blood shards: {}", killer->GetName(),
-                    shards->GetStackAmount());
-            }
-        }
-
         LOG_INFO("module", "Bloodmage {} recuperou {} HP por abate ({}% de {})",
             killer->GetName(), gained, _percent, killer->GetMaxHealth());
     }
@@ -270,10 +256,113 @@ public:
 private:
     bool _enabled = true;
     uint32 _percent = 5;
-    uint32 _aura = 90000;
 };
 
-/// Veinburst (90001): consome ate 3 Blood Shards (aura 90000) para dano extra.
+namespace
+{
+uint32 const SPELL_CRIMSON_DEBT  = 90000;
+uint32 const SPELL_OVERFLOW      = 90010;
+uint32 const SPELL_VITAL_RESERVE = 90022;
+uint8  const CLASS_BLOODMAGE     = 13;
+
+/// Spells do kit que cobram vida (ver docs/research/bloodmage-full-kit.md).
+bool IsHealthCostSpell(uint32 spellId)
+{
+    switch (spellId)
+    {
+        case 90005: // Vein Lance
+        case 90012: // Clotward
+            return true;
+        default:
+            return false;
+    }
+}
+
+uint8 CounterCap(uint32 spellId)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (info && info->StackAmount)
+        return uint8(info->StackAmount);
+    return 10;
+}
+
+/// Sobe 1 stack de uma aura-contador e devolve o total depois do incremento.
+uint8 GrantCounter(Player* player, uint32 spellId)
+{
+    uint8 const cap = CounterCap(spellId);
+    Aura* aura = player->GetAura(spellId);
+    if (!aura)
+    {
+        // AddAura ja aplica com 1 stack: contar como a primeira concessao.
+        aura = player->AddAura(spellId, player);
+        return aura ? aura->GetStackAmount() : 0;
+    }
+
+    if (aura->GetStackAmount() < cap)
+        aura->ModStackAmount(aura->GetStackAmount() + 1);
+
+    return aura->GetStackAmount();
+}
+} // namespace
+
+/// Recursos do Bloodmage: Crimson Debt (90000), Overflow (90010) e Vital Reserve (90022).
+class ModAvalonBloodmageResource : public PlayerScript
+{
+public:
+    ModAvalonBloodmageResource() :
+        PlayerScript("ModAvalonBloodmageResource",
+            { PLAYERHOOK_ON_SPELL_CAST, PLAYERHOOK_ON_CREATURE_KILL })
+    {
+        LOG_INFO("module", "ModAvalonBloodmageResource enabled (Crimson Debt {})",
+            CounterCap(SPELL_CRIMSON_DEBT));
+    }
+
+    void OnPlayerSpellCast(Player* player, Spell* spell, bool skipCheck) override
+    {
+        if (!player || skipCheck || !spell || !spell->GetSpellInfo())
+            return;
+        if (player->getClass() != CLASS_BLOODMAGE)
+            return;
+
+        uint32 const spellId = spell->GetSpellInfo()->Id;
+        if (!IsHealthCostSpell(spellId))
+            return;
+
+        GrantCrimsonDebt(player, spellId);
+
+        uint8 const reserve = GrantCounter(player, SPELL_VITAL_RESERVE);
+        LOG_INFO("module", "Bloodmage {} Vital Reserve {}", player->GetName(), reserve);
+    }
+
+    void OnPlayerCreatureKill(Player* killer, Creature* /*killed*/) override
+    {
+        if (!killer || killer->getClass() != CLASS_BLOODMAGE || !killer->IsAlive())
+            return;
+
+        GrantCrimsonDebt(killer, 0);
+    }
+
+private:
+    void GrantCrimsonDebt(Player* player, uint32 sourceSpell)
+    {
+        uint8 const stacks = GrantCounter(player, SPELL_CRIMSON_DEBT);
+        if (!stacks)
+            return;
+
+        LOG_INFO("module", "Bloodmage {} Crimson Debt {} (spell {})",
+            player->GetName(), stacks, sourceSpell);
+
+        if (stacks >= CounterCap(SPELL_CRIMSON_DEBT))
+        {
+            player->AddAura(SPELL_OVERFLOW, player);
+            player->RemoveAura(SPELL_CRIMSON_DEBT);
+            LOG_INFO("module", "Bloodmage {} Overflow aplicado (Crimson Debt cheio)",
+                player->GetName());
+        }
+    }
+};
+
+/// Veinburst (90001): consome ate 3 stacks de Crimson Debt (aura 90000) para dano extra.
 class spell_avalon_veinburst : public SpellScript
 {
     PrepareSpellScript(spell_avalon_veinburst);
@@ -298,7 +387,7 @@ class spell_avalon_veinburst : public SpellScript
             Unit::DealDamage(caster, target, 60u * consumed, nullptr, DIRECT_DAMAGE,
                 SPELL_SCHOOL_MASK_SHADOW, GetSpellInfo(), false);
 
-        LOG_INFO("module", "Veinburst de {} consumiu {} shards", caster->GetName(), consumed);
+        LOG_INFO("module", "Veinburst de {} consumiu {} Crimson Debt", caster->GetName(), consumed);
     }
 
     void OnCastCheck()
@@ -348,7 +437,7 @@ class spell_avalon_hemostasis : public SpellScript
         log << uint8(0);
         caster->SendMessageToSet(&log, true);
 
-        LOG_INFO("module", "Hemostasis de {} consumiu 3 shards (+{} HP)", caster->GetName(), gained);
+        LOG_INFO("module", "Hemostasis de {} consumiu 3 Crimson Debt (+{} HP)", caster->GetName(), gained);
     }
 
     void Register() override
@@ -363,6 +452,7 @@ void Addmod_custom_classesScripts()
     new ModAvalonProbe();
     new ModAvalonClassSpells();
     new ModAvalonBloodmageMechanic();
+    new ModAvalonBloodmageResource();
     RegisterSpellScript(spell_avalon_veinburst);
     RegisterSpellScript(spell_avalon_hemostasis);
 }
