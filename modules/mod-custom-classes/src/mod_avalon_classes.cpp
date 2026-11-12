@@ -71,7 +71,7 @@ public:
     ModAvalonProbe() :
         WorldScript("ModAvalonProbe", { WORLDHOOK_ON_UPDATE })
     {
-        _enabled = sConfigMgr->GetOption<bool>("Avalon.Probe.Enable", true);
+        _enabled = sConfigMgr->GetOption<bool>("Avalon.Probe.Enable", false);
         _interval = sConfigMgr->GetOption<uint32>("Avalon.Probe.Interval", 5000);
         LOG_INFO("module", "ModAvalonProbe {} (interval {} ms)",
             _enabled ? "enabled" : "disabled", _interval);

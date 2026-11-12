@@ -14,8 +14,8 @@ ModCustomClasses.Enabled = true
 #   Envia AVALON_SMSG_PROBE (0x0A00) para sessoes conectadas ainda no char select.
 #   Serve para provar o caminho servidor -> extensao de cliente. Desligar em producao.
 #
-Avalon.Probe.Enable = true
-Avalon.Probe.Interval = 5000
+Avalon.Probe.Enable = false
+Avalon.Probe.Interval = 5000  # so usado se Enable = true
 
 ###################################################################################################
 #  BLOODMAGE (class 13)
