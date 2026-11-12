@@ -298,8 +298,9 @@ uint8 GrantCounter(Player* player, uint32 spellId)
         return aura ? aura->GetStackAmount() : 0;
     }
 
+    // ModStackAmount recebe DELTA, nao valor absoluto (SpellAuras.cpp).
     if (aura->GetStackAmount() < cap)
-        aura->ModStackAmount(aura->GetStackAmount() + 1);
+        aura->ModStackAmount(1);
 
     return aura->GetStackAmount();
 }
@@ -381,7 +382,7 @@ class spell_avalon_veinburst : public SpellScript
         if (!consumed)
             return;
 
-        shards->ModStackAmount(shards->GetStackAmount() - consumed);
+        shards->ModStackAmount(-int32(consumed));
 
         if (Unit* target = GetHitUnit())
             Unit::DealDamage(caster, target, 60u * consumed, nullptr, DIRECT_DAMAGE,
@@ -419,7 +420,7 @@ class spell_avalon_hemostasis : public SpellScript
         if (!shards || shards->GetStackAmount() < 3)
             return;
 
-        shards->ModStackAmount(shards->GetStackAmount() - 3);
+        shards->ModStackAmount(-3);
 
         uint32 const heal = 50u * 3u;
         uint32 const before = caster->GetHealth();
