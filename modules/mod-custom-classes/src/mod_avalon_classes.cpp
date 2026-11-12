@@ -401,7 +401,7 @@ class spell_avalon_veinburst : public SpellScript
     void Register() override
     {
         OnCast += SpellCastFn(spell_avalon_veinburst::OnCastCheck);
-        OnEffectHit += SpellEffectFn(spell_avalon_veinburst::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+        OnEffectHitTarget += SpellEffectFn(spell_avalon_veinburst::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
