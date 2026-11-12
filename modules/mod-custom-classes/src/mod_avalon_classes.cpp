@@ -212,7 +212,7 @@ public:
     {
         _enabled = sConfigMgr->GetOption<bool>("Avalon.Bloodmage.HealOnKill.Enable", true);
         _percent = sConfigMgr->GetOption<uint32>("Avalon.Bloodmage.HealOnKill.Percent", 5);
-        _aura = sConfigMgr->GetOption<uint32>("Avalon.Bloodmage.HealOnKill.AuraSpell", 2687);
+        _aura = sConfigMgr->GetOption<uint32>("Avalon.Bloodmage.HealOnKill.AuraSpell", 90000);
         LOG_INFO("module", "ModAvalonBloodmageMechanic {} ({}% do HP por abate)",
             _enabled ? "enabled" : "disabled", _percent);
     }
@@ -261,7 +261,7 @@ public:
 private:
     bool _enabled = true;
     uint32 _percent = 5;
-    uint32 _aura = 2687;
+    uint32 _aura = 90000;
 };
 
 void Addmod_custom_classesScripts()
