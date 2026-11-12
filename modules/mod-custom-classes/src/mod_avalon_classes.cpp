@@ -23,6 +23,9 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
+#include "SpellAuras.h"
+#include "SpellScript.h"
+#include "SpellScriptLoader.h"
 
 #include <map>
 #include <sstream>
@@ -122,7 +125,7 @@ public:
         _enabled = sConfigMgr->GetOption<bool>("Avalon.ClassSpells.Enable", true);
         _defaults = {
             {12, {6673, 100, 78}},              // Barbarian  <- Warrior
-            {13, {133, 116, 686, 1454, 172}},   // Bloodmage  <- Mage/Warlock
+            {13, {133, 116, 686, 1454, 172, 90001, 90002}}, // Bloodmage + Veinburst/Hemostasis
             {14, {133, 116, 1459}},             // Chronomancer
             {15, {686, 172, 689}},              // Cultist
             {16, {686, 348, 702}},              // Felsworn
@@ -246,12 +249,18 @@ public:
         log << uint8(0);
         killer->SendMessageToSet(&log, true);
 
-        // Icone nativo na barra de buffs.
-        if (_aura && !killer->HasAura(_aura))
+        // Blood Shards: empilha 1 por abate (max definido no Spell.dbc).
+        if (_aura)
         {
-            Aura* applied = killer->AddAura(_aura, killer);
-            LOG_INFO("module", "Bloodmage {} aura {} -> {}", killer->GetName(), _aura,
-                applied ? "aplicada" : "FALHOU");
+            Aura* shards = killer->GetAura(_aura);
+            if (!shards)
+                shards = killer->AddAura(_aura, killer);
+            if (shards)
+            {
+                shards->ModStackAmount(shards->GetStackAmount() + 1);
+                LOG_INFO("module", "Bloodmage {} blood shards: {}", killer->GetName(),
+                    shards->GetStackAmount());
+            }
         }
 
         LOG_INFO("module", "Bloodmage {} recuperou {} HP por abate ({}% de {})",
@@ -264,10 +273,53 @@ private:
     uint32 _aura = 90000;
 };
 
+/// Veinburst (90001): consome ate 3 Blood Shards (aura 90000) para dano extra.
+class spell_avalon_veinburst : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_veinburst);
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Player* caster = GetCaster()->ToPlayer();
+        if (!caster || caster->getClass() != 13)
+            return;
+
+        Aura* shards = caster->GetAura(90000);
+        if (!shards)
+            return;
+
+        uint8 const consumed = std::min<uint8>(shards->GetStackAmount(), 3);
+        if (!consumed)
+            return;
+
+        shards->ModStackAmount(shards->GetStackAmount() - consumed);
+
+        if (Unit* target = GetHitUnit())
+            Unit::DealDamage(caster, target, 60u * consumed, nullptr, DIRECT_DAMAGE,
+                SPELL_SCHOOL_MASK_SHADOW, GetSpellInfo(), false);
+
+        LOG_INFO("module", "Veinburst de {} consumiu {} shards", caster->GetName(), consumed);
+    }
+
+    void OnCastCheck()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        LOG_INFO("module", "Veinburst cast detectado ({})",
+            caster ? caster->GetName() : "sem player");
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_avalon_veinburst::OnCastCheck);
+        OnEffectHit += SpellEffectFn(spell_avalon_veinburst::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
 void Addmod_custom_classesScripts()
 {
     new ModAvalonClasses();
     new ModAvalonProbe();
     new ModAvalonClassSpells();
     new ModAvalonBloodmageMechanic();
+    RegisterSpellScript(spell_avalon_veinburst);
 }
