@@ -24,6 +24,7 @@
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
 
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -110,39 +111,80 @@ private:
     uint32 _counter = 0;
 };
 
-/// Bloodmage (class 13): concede o conjunto inicial de spells.
-/// Lista em config (`Avalon.Bloodmage.StarterSpells`), aplicada no login e
-/// idempotente (hasSpell antes de aprender).
-class ModAvalonBloodmage : public PlayerScript
+/// Spells iniciais por classe Avalon (12..32).
+/// Defaults no codigo; config `Avalon.Class.<id>.Spells` sobrescreve por classe.
+class ModAvalonClassSpells : public PlayerScript
 {
 public:
-    ModAvalonBloodmage() :
-        PlayerScript("ModAvalonBloodmage", { PLAYERHOOK_ON_LOGIN })
+    ModAvalonClassSpells() :
+        PlayerScript("ModAvalonClassSpells", { PLAYERHOOK_ON_LOGIN })
     {
-        _enabled = sConfigMgr->GetOption<bool>("Avalon.Bloodmage.Enable", true);
-        _spells = ParseSpells(sConfigMgr->GetOption<std::string>("Avalon.Bloodmage.StarterSpells",
-            "133,116,686,1454,172"));
-        LOG_INFO("module", "ModAvalonBloodmage {} ({} spells)", _enabled ? "enabled" : "disabled", _spells.size());
+        _enabled = sConfigMgr->GetOption<bool>("Avalon.ClassSpells.Enable", true);
+        _defaults = {
+            {12, {6673, 100, 78}},              // Barbarian  <- Warrior
+            {13, {133, 116, 686, 1454, 172}},   // Bloodmage  <- Mage/Warlock
+            {14, {133, 116, 1459}},             // Chronomancer
+            {15, {686, 172, 689}},              // Cultist
+            {16, {686, 348, 702}},              // Felsworn
+            {17, {6673, 78, 7386}},             // Guardian
+            {18, {20154, 635, 498}},            // Knight of Xoroth
+            {19, {686, 172, 689, 688}},         // Necromancer
+            {20, {5176, 8921, 5185}},           // Primalist
+            {21, {133, 348, 2120}},             // Pyromancer
+            {22, {2973, 3044, 1978}},           // Ranger
+            {23, {1752, 2098, 1784}},           // Reaper
+            {24, {686, 1459, 8092}},            // Runemaster
+            {25, {8921, 5176, 8936}},           // Starcaller
+            {26, {403, 331, 8042}},             // Stormbringer
+            {27, {585, 2050, 139}},             // Sun Cleric
+            {28, {20154, 635, 498}},            // Templar
+            {29, {133, 116, 1459}},             // Tinker
+            {30, {172, 3043, 1978}},            // Venomancer
+            {31, {403, 8042, 331}},             // Witch Doctor
+            {32, {2973, 3044, 1978}},           // Witch Hunter
+        };
+        LOG_INFO("module", "ModAvalonClassSpells {} ({} classes)", _enabled ? "enabled" : "disabled", _defaults.size());
     }
 
     void OnPlayerLogin(Player* player) override
     {
-        if (!_enabled || !player || player->getClass() != 13)
+        if (!_enabled || !player || player->getClass() < 12)
             return;
 
+        uint32 const classId = player->getClass();
+        std::vector<uint32> spells = SpellsFor(classId);
         uint32 learned = 0;
-        for (uint32 spellId : _spells)
+        for (uint32 spellId : spells)
         {
             if (player->HasSpell(spellId))
                 continue;
             player->learnSpell(spellId, false);
-            ++learned;
+            if (player->HasSpell(spellId))
+                ++learned;
+            else
+                LOG_ERROR("module", "classe {}: spell {} nao existe no servidor", classId, spellId);
         }
         if (learned)
-            LOG_INFO("module", "Bloodmage {} aprendeu {} spells iniciais", player->GetName(), learned);
+        {
+            // Persiste na hora: se o cliente cair sem logout, o personagem
+            // ficaria sem os spells no proximo login.
+            player->SaveToDB(false, false);
+            LOG_INFO("module", "classe {} ({}): {} spells iniciais (salvo)", classId, player->GetName(), learned);
+        }
     }
 
 private:
+    std::vector<uint32> SpellsFor(uint32 classId) const
+    {
+        std::string const key = "Avalon.Class." + std::to_string(classId) + ".Spells";
+        std::string const configured = sConfigMgr->GetOption<std::string>(key, "");
+        if (!configured.empty())
+            return ParseSpells(configured);
+
+        auto it = _defaults.find(classId);
+        return it == _defaults.end() ? std::vector<uint32>{} : it->second;
+    }
+
     static std::vector<uint32> ParseSpells(std::string const& csv)
     {
         std::vector<uint32> out;
@@ -157,12 +199,12 @@ private:
     }
 
     bool _enabled = true;
-    std::vector<uint32> _spells;
+    std::map<uint32, std::vector<uint32>> _defaults;
 };
 
 void Addmod_custom_classesScripts()
 {
     new ModAvalonClasses();
     new ModAvalonProbe();
-    new ModAvalonBloodmage();
+    new ModAvalonClassSpells();
 }
