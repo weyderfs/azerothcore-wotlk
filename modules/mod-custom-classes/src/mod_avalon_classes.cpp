@@ -202,9 +202,72 @@ private:
     std::map<uint32, std::vector<uint32>> _defaults;
 };
 
+/// Mecanica v1 do Bloodmage: ao matar uma criatura, recupera % do HP maximo
+/// ("sede de sangue"). Sem spell custom, sem mudanca no cliente.
+class ModAvalonBloodmageMechanic : public PlayerScript
+{
+public:
+    ModAvalonBloodmageMechanic() :
+        PlayerScript("ModAvalonBloodmageMechanic", { PLAYERHOOK_ON_CREATURE_KILL })
+    {
+        _enabled = sConfigMgr->GetOption<bool>("Avalon.Bloodmage.HealOnKill.Enable", true);
+        _percent = sConfigMgr->GetOption<uint32>("Avalon.Bloodmage.HealOnKill.Percent", 5);
+        _aura = sConfigMgr->GetOption<uint32>("Avalon.Bloodmage.HealOnKill.AuraSpell", 2687);
+        LOG_INFO("module", "ModAvalonBloodmageMechanic {} ({}% do HP por abate)",
+            _enabled ? "enabled" : "disabled", _percent);
+    }
+
+    void OnPlayerCreatureKill(Player* killer, Creature* /*killed*/) override
+    {
+        if (!_enabled || !killer || killer->getClass() != 13 || _percent == 0)
+            return;
+        if (!killer->IsAlive())
+            return;
+
+        uint32 const heal = killer->GetMaxHealth() * _percent / 100;
+        if (!heal)
+            return;
+
+        uint32 const before = killer->GetHealth();
+        killer->ModifyHealth(int32(heal));
+        uint32 const gained = killer->GetHealth() - before;
+        if (!gained)
+            return;
+
+        // Cura no combat log nativo (SMSG_SPELLHEALLOG + Drain Life).
+        WorldPacket log(SMSG_SPELLHEALLOG, 34);
+        log << killer->GetPackGUID();
+        log << killer->GetPackGUID();
+        log << uint32(689);
+        log << uint32(gained);
+        log << uint32(heal - gained);
+        log << uint32(0);
+        log << uint8(0);
+        log << uint8(0);
+        killer->SendMessageToSet(&log, true);
+
+        // Icone nativo na barra de buffs.
+        if (_aura && !killer->HasAura(_aura))
+        {
+            Aura* applied = killer->AddAura(_aura, killer);
+            LOG_INFO("module", "Bloodmage {} aura {} -> {}", killer->GetName(), _aura,
+                applied ? "aplicada" : "FALHOU");
+        }
+
+        LOG_INFO("module", "Bloodmage {} recuperou {} HP por abate ({}% de {})",
+            killer->GetName(), gained, _percent, killer->GetMaxHealth());
+    }
+
+private:
+    bool _enabled = true;
+    uint32 _percent = 5;
+    uint32 _aura = 2687;
+};
+
 void Addmod_custom_classesScripts()
 {
     new ModAvalonClasses();
     new ModAvalonProbe();
     new ModAvalonClassSpells();
+    new ModAvalonBloodmageMechanic();
 }

@@ -24,3 +24,11 @@ Avalon.Probe.Interval = 5000  # so usado se Enable = true
 #
 Avalon.Bloodmage.Enable = true
 Avalon.Bloodmage.StarterSpells = "133,116,686,1454,172"
+
+###################################################################################################
+#  BLOODMAGE - mecanica (class 13)
+#
+Avalon.Bloodmage.HealOnKill.Enable = true
+Avalon.Bloodmage.HealOnKill.Percent = 5
+Avalon.Bloodmage.HealOnKill.AuraSpell = 2687
+Avalon.Bloodmage.HealOnKill.Notify = true
