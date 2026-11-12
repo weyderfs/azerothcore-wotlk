@@ -315,6 +315,48 @@ class spell_avalon_veinburst : public SpellScript
     }
 };
 
+/// Hemostasis (90002): consome 3 Blood Shards para cura instantanea extra.
+class spell_avalon_hemostasis : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_hemostasis);
+
+    void ConsumeShards()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster || caster->getClass() != 13)
+            return;
+
+        Aura* shards = caster->GetAura(90000);
+        if (!shards || shards->GetStackAmount() < 3)
+            return;
+
+        shards->ModStackAmount(shards->GetStackAmount() - 3);
+
+        uint32 const heal = 50u * 3u;
+        uint32 const before = caster->GetHealth();
+        caster->ModifyHealth(int32(heal));
+        uint32 const gained = caster->GetHealth() - before;
+
+        WorldPacket log(SMSG_SPELLHEALLOG, 34);
+        log << caster->GetPackGUID();
+        log << caster->GetPackGUID();
+        log << uint32(90002);
+        log << uint32(gained);
+        log << uint32(heal - gained);
+        log << uint32(0);
+        log << uint8(0);
+        log << uint8(0);
+        caster->SendMessageToSet(&log, true);
+
+        LOG_INFO("module", "Hemostasis de {} consumiu 3 shards (+{} HP)", caster->GetName(), gained);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_avalon_hemostasis::ConsumeShards);
+    }
+};
+
 void Addmod_custom_classesScripts()
 {
     new ModAvalonClasses();
@@ -322,4 +364,5 @@ void Addmod_custom_classesScripts()
     new ModAvalonClassSpells();
     new ModAvalonBloodmageMechanic();
     RegisterSpellScript(spell_avalon_veinburst);
+    RegisterSpellScript(spell_avalon_hemostasis);
 }
