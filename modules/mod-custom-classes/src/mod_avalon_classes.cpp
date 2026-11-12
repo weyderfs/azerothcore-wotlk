@@ -389,6 +389,197 @@ private:
     }
 };
 
+namespace
+{
+float ShadowPower(Unit* caster)
+{
+    return caster->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_SHADOW);
+}
+
+void SendHealLog(Unit* caster, Unit* target, uint32 spellId, uint32 gained, uint32 overheal)
+{
+    WorldPacket log(SMSG_SPELLHEALLOG, 34);
+    log << caster->GetPackGUID();
+    log << target->GetPackGUID();
+    log << uint32(spellId);
+    log << uint32(gained);
+    log << uint32(overheal);
+    log << uint32(0);
+    log << uint8(0);
+    log << uint8(0);
+    caster->SendMessageToSet(&log, true);
+}
+
+/// Dano calculado pelo modulo. O efeito da doadora ja aplica a parte base.
+void DealBonusDamage(Unit* caster, Unit* target, uint32 amount, SpellSchoolMask school,
+    SpellInfo const* spellInfo)
+{
+    if (!amount)
+        return;
+    Unit::DealDamage(caster, target, amount, nullptr, DIRECT_DAMAGE, school, spellInfo, false);
+}
+} // namespace
+
+/// Vein Lance (90005): custa 3% da vida e soma 0.685*SP ao dano.
+class spell_avalon_vein_lance : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_vein_lance);
+
+    void PayHealth()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        uint32 const cost = std::max<uint32>(1, caster->GetMaxHealth() * 3 / 100);
+        if (caster->GetHealth() <= cost)
+            return;
+
+        caster->ModifyHealth(-int32(cost));
+        LOG_INFO("module", "Vein Lance de {} custou {} HP", caster->GetName(), cost);
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        uint32 const bonus = uint32(0.685f * ShadowPower(caster));
+        DealBonusDamage(caster, target, bonus, SPELL_SCHOOL_MASK_SHADOW, GetSpellInfo());
+        if (bonus)
+            LOG_INFO("module", "Vein Lance de {} +{} dano", caster->GetName(), bonus);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_avalon_vein_lance::PayHealth);
+        OnEffectHitTarget += SpellEffectFn(spell_avalon_vein_lance::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+/// Wounddrinker (90006): gasta todo Crimson Debt, +3% dano por stack, cura metade.
+class spell_avalon_wounddrinker : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_wounddrinker);
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        uint8 stacks = 0;
+        if (Aura* debt = caster->GetAura(SPELL_CRIMSON_DEBT))
+        {
+            stacks = debt->GetStackAmount();
+            caster->RemoveAura(SPELL_CRIMSON_DEBT);
+        }
+
+        uint32 const damage = uint32(0.34f * ShadowPower(caster) * (1.0f + 0.03f * stacks));
+        DealBonusDamage(caster, target, damage, SPELL_SCHOOL_MASK_SHADOW, GetSpellInfo());
+
+        uint32 heal = 0;
+        if (damage)
+        {
+            uint32 const before = caster->GetHealth();
+            caster->ModifyHealth(int32(damage / 2));
+            heal = caster->GetHealth() - before;
+            SendHealLog(caster, caster, GetSpellInfo()->Id, heal, damage / 2 - heal);
+        }
+
+        LOG_INFO("module", "Wounddrinker de {} consumiu {} Crimson Debt: {} dano, {} cura",
+            caster->GetName(), stacks, damage, heal);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_avalon_wounddrinker::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+/// Crimson Eclipse (90013): 0.5*SP + 1.0*SPI de dano sombrio.
+class spell_avalon_crimson_eclipse : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_crimson_eclipse);
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        float const spirit = caster->GetStat(STAT_SPIRIT);
+        uint32 const bonus = uint32(0.5f * ShadowPower(caster) + spirit);
+        DealBonusDamage(caster, target, bonus, SPELL_SCHOOL_MASK_SHADOW, GetSpellInfo());
+        if (bonus)
+            LOG_INFO("module", "Crimson Eclipse de {} +{} dano", caster->GetName(), bonus);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_avalon_crimson_eclipse::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+/// Arterial Burst (90014): soma 0.5*SP em cada alvo da area.
+class spell_avalon_arterial_burst : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_arterial_burst);
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        uint32 const bonus = uint32(0.5f * ShadowPower(caster));
+        DealBonusDamage(caster, target, bonus, SPELL_SCHOOL_MASK_SHADOW, GetSpellInfo());
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_avalon_arterial_burst::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+/// Maul Bite (90016): 0.26*AP fisico e cura o mesmo valor.
+class spell_avalon_maul_bite : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_maul_bite);
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        uint32 const damage = uint32(0.26f * caster->GetTotalAttackPowerValue(BASE_ATTACK));
+        DealBonusDamage(caster, target, damage, SPELL_SCHOOL_MASK_NORMAL, GetSpellInfo());
+
+        uint32 heal = 0;
+        if (damage)
+        {
+            uint32 const before = caster->GetHealth();
+            caster->ModifyHealth(int32(damage));
+            heal = caster->GetHealth() - before;
+            SendHealLog(caster, caster, GetSpellInfo()->Id, heal, damage - heal);
+        }
+
+        LOG_INFO("module", "Maul Bite de {}: {} dano, {} cura", caster->GetName(), damage, heal);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_avalon_maul_bite::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
 /// Recursos do Bloodmage: Crimson Debt (90000), Overflow (90010) e Vital Reserve (90022).
 class ModAvalonBloodmageResource : public PlayerScript
 {
@@ -540,5 +731,10 @@ void Addmod_custom_classesScripts()
     RegisterSpellScript(spell_avalon_veinburst);
     RegisterSpellScript(spell_avalon_hemostasis);
     RegisterSpellScript(spell_avalon_form_stance);
+    RegisterSpellScript(spell_avalon_vein_lance);
+    RegisterSpellScript(spell_avalon_wounddrinker);
+    RegisterSpellScript(spell_avalon_crimson_eclipse);
+    RegisterSpellScript(spell_avalon_arterial_burst);
+    RegisterSpellScript(spell_avalon_maul_bite);
     RegisterSpellScript(spell_avalon_form_gate);
 }
