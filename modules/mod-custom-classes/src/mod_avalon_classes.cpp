@@ -306,6 +306,89 @@ uint8 GrantCounter(Player* player, uint32 spellId)
 }
 } // namespace
 
+namespace
+{
+uint32 const SPELL_FLESHBOUND_FORM = 90003;
+uint32 const SPELL_WOLFBOUND_FORM  = 90004;
+uint32 const SPELL_UNBOUND_CURSE   = 90019;
+}
+
+/// Posturas: aplicar uma remove as outras (docs/research/bloodmage-full-kit.md §4).
+class spell_avalon_form_stance : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_form_stance);
+
+    void SwapStance()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        uint32 const self = GetSpellInfo()->Id;
+        static constexpr uint32 stances[] = { SPELL_FLESHBOUND_FORM, SPELL_WOLFBOUND_FORM, SPELL_UNBOUND_CURSE };
+
+        for (uint32 other : stances)
+        {
+            if (other == self || !caster->HasAura(other))
+                continue;
+
+            caster->RemoveAura(other);
+            LOG_INFO("module", "Bloodmage {} forma {} substituida por {}",
+                caster->GetName(), other, self);
+        }
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_avalon_form_stance::SwapStance);
+    }
+};
+
+/// Gate de forma: recusa a spell quando a postura exigida nao esta ativa.
+class spell_avalon_form_gate : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_form_gate);
+
+    SpellCastResult CheckForm()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return SPELL_FAILED_DONT_REPORT;
+
+        uint32 const required = RequiredStance(GetSpellInfo()->Id);
+        if (!required || caster->HasAura(required))
+            return SPELL_CAST_OK;
+
+        LOG_INFO("module", "Bloodmage {} spell {} recusada: falta forma {}",
+            caster->GetName(), GetSpellInfo()->Id, required);
+        return SPELL_FAILED_ONLY_SHAPESHIFT;
+    }
+
+    void Register() override
+    {
+        OnCheckCast += SpellCheckCastFn(spell_avalon_form_gate::CheckForm);
+    }
+
+private:
+    static uint32 RequiredStance(uint32 spellId)
+    {
+        switch (spellId)
+        {
+            case 90013: // Crimson Eclipse
+            case 90014: // Arterial Burst
+                return SPELL_FLESHBOUND_FORM;
+            case 90015: // Talonsweep
+            case 90016: // Maul Bite
+            case 90017: // Savage Leap
+            case 90018: // Dread Howl
+            case 90019: // Unbound Curse
+                return SPELL_WOLFBOUND_FORM;
+            default:
+                return 0;
+        }
+    }
+};
+
 /// Recursos do Bloodmage: Crimson Debt (90000), Overflow (90010) e Vital Reserve (90022).
 class ModAvalonBloodmageResource : public PlayerScript
 {
@@ -456,4 +539,6 @@ void Addmod_custom_classesScripts()
     new ModAvalonBloodmageResource();
     RegisterSpellScript(spell_avalon_veinburst);
     RegisterSpellScript(spell_avalon_hemostasis);
+    RegisterSpellScript(spell_avalon_form_stance);
+    RegisterSpellScript(spell_avalon_form_gate);
 }
