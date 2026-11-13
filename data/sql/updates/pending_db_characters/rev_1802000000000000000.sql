@@ -1,0 +1,14 @@
+-- Estado de spec e talentos do Avalon por personagem.
+CREATE TABLE IF NOT EXISTS `avalon_spec` (
+  `guid` INT UNSIGNED NOT NULL,
+  `spec` INT UNSIGNED NOT NULL,
+  `chosen_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`guid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `avalon_talents` (
+  `guid` INT UNSIGNED NOT NULL,
+  `node` INT UNSIGNED NOT NULL,
+  `rank` TINYINT UNSIGNED NOT NULL,
+  PRIMARY KEY (`guid`, `node`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -721,6 +721,8 @@ class spell_avalon_hemostasis : public SpellScript
     }
 };
 
+void AddAvalonTalentScripts();
+
 void Addmod_custom_classesScripts()
 {
     new ModAvalonClasses();
@@ -737,4 +739,5 @@ void Addmod_custom_classesScripts()
     RegisterSpellScript(spell_avalon_arterial_burst);
     RegisterSpellScript(spell_avalon_maul_bite);
     RegisterSpellScript(spell_avalon_form_gate);
+    AddAvalonTalentScripts();
 }
