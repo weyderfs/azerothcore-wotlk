@@ -23,6 +23,8 @@
 // jogador por nome e funcionam pelo console/SOAP.
 
 #include "Chat.h"
+#include "GossipDef.h"
+#include "ScriptedGossip.h"
 #include "ChatCommand.h"
 #include "CommandScript.h"
 #include "DatabaseEnv.h"
@@ -53,6 +55,15 @@ struct TalentNode
     std::string name;
 };
 
+// Idiomas que a race 12 precisa ter: sem eles o servidor recusa o chat
+// (LANG_NOT_LEARNED_LANGUAGE) e comandos digitados nunca chegam.
+uint16 const AVALON_LANG_COMMON = 98;
+uint16 const AVALON_LANG_THALASSIAN = 137;
+// Declaracoes antecipadas: os helpers de gossip e de comando usam estes.
+uint32 SpentPoints(uint64 guid);
+uint8 KnownRank(uint64 guid, uint32 nodeId);
+uint32 SpentInSpec(uint64 guid, uint32 specId);
+
 uint32 const SPEC_FLESHWEAVER = 1301;
 uint32 const SPEC_BLOOD = 1302;
 uint32 const SPEC_ACCURSED = 1303;
@@ -74,6 +85,94 @@ uint32 TalentPointsFor(Player* player)
     if (!player || player->GetLevel() <= FIRST_TALENT_LEVEL)
         return player && player->GetLevel() == FIRST_TALENT_LEVEL ? 1u : 0u;
     return uint32(player->GetLevel()) - (FIRST_TALENT_LEVEL - 1);
+}
+
+uint32 ChosenSpec(uint64 guid)
+{
+    QueryResult result = CharacterDatabase.Query(
+        "SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
+    return result ? result->Fetch()[0].Get<uint32>() : 0;
+}
+
+bool LearnNode(Player* player, uint32 nodeId, std::string& error)
+{
+    auto it = g_nodes.find(nodeId);
+    if (it == g_nodes.end())
+    {
+        error = "No inexistente.";
+        return false;
+    }
+
+    TalentNode const& node = it->second;
+    uint64 const guid = player->GetGUID().GetCounter();
+
+    if (ChosenSpec(guid) != node.specId)
+    {
+        error = "Este no pertence a outra spec.";
+        return false;
+    }
+
+    uint8 const rank = KnownRank(guid, nodeId);
+    if (rank >= node.maxRank)
+    {
+        error = "Rank maximo atingido.";
+        return false;
+    }
+
+    uint32 const total = TalentPointsFor(player);
+    uint32 const spent = SpentPoints(guid);
+    if (spent >= total)
+    {
+        error = "Sem pontos disponiveis.";
+        return false;
+    }
+
+    if (node.prereq && KnownRank(guid, node.prereq) < node.prereqRank)
+    {
+        error = "Pre-requisito nao atendido.";
+        return false;
+    }
+
+    if (SpentInSpec(guid, node.specId) < node.requiredPoints)
+    {
+        error = "Pontos insuficientes nesta arvore.";
+        return false;
+    }
+
+    CharacterDatabase.Execute(
+        "REPLACE INTO `avalon_talents` (`guid`, `node`, `rank`) VALUES ({}, {}, {})",
+        guid, nodeId, uint32(rank + 1));
+
+    LOG_INFO("module", "Avalon: {} aprendeu {} rank {}/{}",
+        player->GetName(), node.name, rank + 1, uint32(node.maxRank));
+    return true;
+}
+
+bool SetSpec(Player* player, uint32 specId, std::string& error)
+{
+    if (!IsKnownSpec(specId))
+    {
+        error = "Spec invalida.";
+        return false;
+    }
+    if (player->GetLevel() < FIRST_TALENT_LEVEL)
+    {
+        error = "Spec a partir do nivel 10.";
+        return false;
+    }
+    uint64 const guid = player->GetGUID().GetCounter();
+    uint32 const previous = ChosenSpec(guid);
+    CharacterDatabase.Execute(
+        "REPLACE INTO `avalon_spec` (`guid`, `spec`) VALUES ({}, {})", guid, specId);
+    if (previous && previous != specId)
+    {
+        // Talentos sao por spec: trocar de spec zera a arvore antiga.
+        CharacterDatabase.Execute("DELETE FROM `avalon_talents` WHERE `guid` = {}", guid);
+        LOG_INFO("module", "Avalon: {} trocou de spec {} -> {} (talentos zerados)",
+            player->GetName(), previous, specId);
+    }
+    LOG_INFO("module", "Avalon: {} escolheu spec {}", player->GetName(), specId);
+    return true;
 }
 
 Player* ResolvePlayer(ChatHandler* handler, std::string const& name)
@@ -111,6 +210,46 @@ uint32 SpentInSpec(uint64 guid, uint32 specId)
     return spent;
 }
 } // namespace
+
+/// Garante idiomas da High Elf no login (GAPS C-24).
+class ModAvalonLanguages : public PlayerScript
+{
+public:
+    ModAvalonLanguages() : PlayerScript("ModAvalonLanguages",
+        { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_CAN_SPEAK_UNLEARNED_LANGUAGE }) { }
+
+    /// A race custom nao esta na tabela de idiomas do cliente; o cliente manda
+    /// um idioma que o core considera nao aprendido e recusa o chat. Este hook
+    /// existe exatamente para isso.
+    [[nodiscard]] bool OnPlayerCanSpeakUnlearnedLanguage(Player* player, uint32 /*type*/, uint32 lang) override
+    {
+        if (player && player->getRace() == 12)
+        {
+            LOG_INFO("module", "Avalon: {} fala idioma {} sem skill (race 12)",
+                player->GetName(), lang);
+            return true;
+        }
+        return false;
+    }
+
+    void OnPlayerLogin(Player* player) override
+    {
+        if (!player || player->getRace() != 12)
+            return;
+
+        bool changed = false;
+        for (uint16 skill : { AVALON_LANG_COMMON, AVALON_LANG_THALASSIAN })
+        {
+            if (player->HasSkill(skill))
+                continue;
+            player->SetSkill(skill, 0, 300, 300);
+            changed = true;
+        }
+
+        if (changed)
+            LOG_INFO("module", "Avalon: {} recebeu os idiomas da race 12", player->GetName());
+    }
+};
 
 /// Carrega o catalogo (world DB) e os comandos de spec/talento.
 class ModAvalonTalentSystem : public WorldScript
@@ -299,8 +438,182 @@ private:
     }
 };
 
+
+/// Manda o estado (spec, ranks, pontos) por addon-message; o addon desenha a
+/// arvore a partir disso.
+static void SendAvalonState(Player* player)
+{
+    uint64 const guid = player->GetGUID().GetCounter();
+    uint32 const spec = ChosenSpec(guid);
+
+    std::string body = "STATE|" + std::to_string(spec) + "|" +
+        std::to_string(SpentPoints(guid)) + "/" + std::to_string(TalentPointsFor(player)) + "|";
+
+    for (auto const& [nodeId, node] : g_nodes)
+    {
+        uint8 const rank = KnownRank(guid, nodeId);
+        if (rank)
+            body += std::to_string(nodeId) + "=" + std::to_string(rank) + ",";
+    }
+
+    // CHAT_MSG_ADDON montado no servidor derrubava o cliente (ERROR #134).
+    // Mensagem de sistema e' um caminho seguro; o addon filtra a linha.
+    LOG_INFO("module", "Avalon: enviando estado para {}: {}", player->GetName(), body.substr(0, 60));
+    ChatHandler(player->GetSession()).SendSysMessage(("AVALONX|" + body).c_str());
+}
+
+/// Canal proprio do cliente: aprende o no' pedido pela UI.
+///
+/// Dois gatilhos:
+///   a) hook do core (CMSG 0x449 reescrito pela extensao)
+///   b) addon-message: o addon manda "AVALONX|LEARN:<id>" como WHISPER; o core
+///      chama OnPlayerBeforeSendChatMessage antes de rotear, e o modulo
+///      processa. Este caminho funciona sem DLL nenhuma.
+class ModAvalonTalentChannel : public PlayerScript
+{
+public:
+    ModAvalonTalentChannel() : PlayerScript("ModAvalonTalentChannel",
+        { PLAYERHOOK_ON_AVALON_TALENT_LEARN, PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE, PLAYERHOOK_ON_LOGIN }) { }
+
+    void OnPlayerLogin(Player* player) override
+    {
+        if (player && player->getClass() == CLASS_BLOODMAGE)
+            SendAvalonState(player);
+    }
+
+    void OnPlayerBeforeSendChatMessage(Player* player, uint32& type, uint32& lang, std::string& msg) override
+    {
+        if (!player || player->getClass() != CLASS_BLOODMAGE)
+            return;
+        if (lang != LANG_ADDON)
+            return;
+        if (msg.rfind("AVALONX", 0) != 0)
+            return;
+
+        // SendAddonMessage entrega "PREFIXO<TAB>mensagem"; aceitar '|' tambem
+        // para nao depender do cliente.
+        std::string::size_type sep = msg.find('\t');
+        if (sep == std::string::npos)
+            sep = msg.find('|');
+        if (sep == std::string::npos)
+            return;
+
+        std::string const payload = msg.substr(sep + 1);
+        LOG_INFO("module", "Avalon: addon msg de {}: {}", player->GetName(), payload);
+        if (payload == "REQ")
+        {
+            SendAvalonState(player);
+            return;
+        }
+        if (payload.rfind("LEARN:", 0) != 0)
+            return;
+
+        uint32 nodeId = 0;
+        for (char c : payload.substr(6))
+        {
+            if (c < '0' || c > '9')
+                break;
+            nodeId = nodeId * 10 + uint32(c - '0');
+        }
+        if (!nodeId)
+            return;
+
+        std::string error;
+        if (LearnNode(player, nodeId, error))
+            SendAvalonState(player);
+        else
+            ChatHandler(player->GetSession()).SendSysMessage(error, true);
+    }
+
+    bool OnAvalonTalentLearn(Player* player, uint32 nodeId) override
+    {
+        if (!player || player->getClass() != CLASS_BLOODMAGE)
+            return false;
+
+        std::string error;
+        if (!LearnNode(player, nodeId, error))
+        {
+            ChatHandler(player->GetSession()).SendSysMessage(error, true);
+            return false;
+        }
+        SendAvalonState(player);
+        return true;
+    }
+};
+
+/// NPC de talentos: escolher spec e gastar pontos sem depender de chat.
+class npc_avalon_talents : public CreatureScript
+{
+public:
+    npc_avalon_talents() : CreatureScript("npc_avalon_talents") { }
+
+    bool OnGossipHello(Player* player, Creature* creature) override
+    {
+        ShowMenu(player, creature);
+        return true;
+    }
+
+    bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
+    {
+        player->PlayerTalkClass->ClearMenus();
+
+        std::string error;
+        if (action >= 1 && action <= 4)
+        {
+            if (!SetSpec(player, 1300 + action, error))
+                ChatHandler(player->GetSession()).SendSysMessage(error, true);
+        }
+        else if (action == 500)
+        {
+            player->GetSession()->SendTrainerList(creature);
+            return true;
+        }
+        else if (action == 900)
+        {
+            uint64 const guid = player->GetGUID().GetCounter();
+            CharacterDatabase.Execute("DELETE FROM `avalon_talents` WHERE `guid` = {}", guid);
+            CharacterDatabase.Execute("DELETE FROM `avalon_spec` WHERE `guid` = {}", guid);
+            LOG_INFO("module", "Avalon: {} resetou a spec", player->GetName());
+        }
+
+        ShowMenu(player, creature);
+        return true;
+    }
+
+private:
+    static void ShowMenu(Player* player, Creature* creature)
+    {
+        player->PlayerTalkClass->ClearMenus();
+
+        if (player->getClass() != CLASS_BLOODMAGE)
+        {
+            AddGossipItemFor(player, GOSSIP_ICON_CHAT, "Only Bloodmages may study these rites.", GOSSIP_SENDER_MAIN, 99);
+            SendGossipMenuFor(player, 900000, creature);
+            return;
+        }
+
+        uint32 const spec = ChosenSpec(player->GetGUID().GetCounter());
+        if (!spec)
+        {
+            AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "Fleshweaver - mend and pool vitality", GOSSIP_SENDER_MAIN, 1);
+            AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "Blood - spend health to destroy", GOSSIP_SENDER_MAIN, 2);
+            AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "Accursed - let the beast fight", GOSSIP_SENDER_MAIN, 3);
+            AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "Eternal - leech and outlast", GOSSIP_SENDER_MAIN, 4);
+            SendGossipMenuFor(player, 900000, creature);
+            return;
+        }
+
+        AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "I am ready for training.", GOSSIP_SENDER_MAIN, 500);
+        AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "Change my specialization.", GOSSIP_SENDER_MAIN, 900);
+        SendGossipMenuFor(player, 900000, creature);
+    }
+};
+
 void AddAvalonTalentScripts()
 {
+    new ModAvalonLanguages();
     new ModAvalonTalentSystem();
     new ModAvalonTalentCommand();
+    new ModAvalonTalentChannel();
+    new npc_avalon_talents();
 }
