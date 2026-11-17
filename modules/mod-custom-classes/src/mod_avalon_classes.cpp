@@ -117,7 +117,8 @@ private:
 
 /// Spells iniciais por classe Avalon (12..32).
 /// Defaults no codigo; config `Avalon.Class.<id>.Spells` sobrescreve por classe.
-/// Bloodmage (13): base + spells da spec ativa (avalon_spec); sem spells stock.
+/// Bloodmage (13): sem spells stock; concessão efetiva fica em bloodmage_levels.cpp
+/// (filtra por spec_id de avalon_class_spells com gate por level).
 class ModAvalonClassSpells : public PlayerScript
 {
 public:
@@ -149,14 +150,6 @@ public:
             {32, {2973, 3044, 1978}},           // Witch Hunter
         };
 
-        // Bloodmage spec_id (1301..1304) -> spells exclusivas da spec.
-        _specSpells = {
-            {1301, {90002, 90007, 90020, 90022}},          // Fleshweaver
-            {1302, {90005, 90009, 90013, 90014}},          // Blood
-            {1303, {90015, 90016, 90017, 90018, 90019}},   // Accursed
-            {1304, {90006, 90008, 90012, 90021, 90023}},   // Eternal
-        };
-
         LOG_INFO("module", "ModAvalonClassSpells {} ({} classes)", _enabled ? "enabled" : "disabled", _defaults.size());
     }
 
@@ -175,12 +168,9 @@ public:
             spells = ParseSpells(configured);
         else if (classId == 13)
         {
-            // Bloodmage: base (spec_id 0) + spells da spec ativa.
-            uint32 const specId = ChosenSpec(player->GetGUID().GetCounter());
-            spells = _defaults[13];
-            auto it = _specSpells.find(specId);
-            if (it != _specSpells.end())
-                spells.insert(spells.end(), it->second.begin(), it->second.end());
+            // Bloodmage: concedido por bloodmage_levels.cpp
+            // (spec_id/level gate via avalon_class_spells). Nada aqui.
+            return;
         }
         else
         {
@@ -211,13 +201,6 @@ public:
     }
 
 private:
-    /// Lê spec ativa do personagem (guid -> spec), mesmo padrão do avalon_talents.cpp.
-    static uint32 ChosenSpec(uint64 guid)
-    {
-        auto result = CharacterDatabase.Query("SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
-        return result ? result->Fetch()[0].Get<uint32>() : 0;
-    }
-
     static std::vector<uint32> ParseSpells(std::string const& csv)
     {
         std::vector<uint32> out;
@@ -233,8 +216,6 @@ private:
 
     bool _enabled = true;
     std::map<uint32, std::vector<uint32>> _defaults;
-    // Bloodmage: spec_id -> spells exclusivas da spec
-    std::map<uint32, std::vector<uint32>> _specSpells;
 };
 
 /// Mecanica v1 do Bloodmage: ao matar uma criatura, recupera % do HP maximo
