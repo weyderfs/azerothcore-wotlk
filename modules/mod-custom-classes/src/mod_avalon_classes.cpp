@@ -722,6 +722,7 @@ class spell_avalon_hemostasis : public SpellScript
 };
 
 void AddAvalonTalentScripts();
+void AddAvalonBloodmageProgressaoScripts();
 
 void Addmod_custom_classesScripts()
 {
@@ -730,6 +731,7 @@ void Addmod_custom_classesScripts()
     new ModAvalonClassSpells();
     new ModAvalonBloodmageMechanic();
     new ModAvalonBloodmageResource();
+    AddAvalonBloodmageProgressaoScripts();
     RegisterSpellScript(spell_avalon_veinburst);
     RegisterSpellScript(spell_avalon_hemostasis);
     RegisterSpellScript(spell_avalon_form_stance);
