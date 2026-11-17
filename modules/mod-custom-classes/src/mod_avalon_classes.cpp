@@ -117,6 +117,7 @@ private:
 
 /// Spells iniciais por classe Avalon (12..32).
 /// Defaults no codigo; config `Avalon.Class.<id>.Spells` sobrescreve por classe.
+/// Bloodmage (13): base + spells da spec ativa (avalon_spec); sem spells stock.
 class ModAvalonClassSpells : public PlayerScript
 {
 public:
@@ -126,7 +127,7 @@ public:
         _enabled = sConfigMgr->GetOption<bool>("Avalon.ClassSpells.Enable", true);
         _defaults = {
             {12, {6673, 100, 78}},              // Barbarian  <- Warrior
-            {13, {133, 116, 686, 1454, 172, 90001, 90002}}, // Bloodmage + Veinburst/Hemostasis
+            {13, {90000, 90001}},               // Bloodmage: base apenas (sem stock Mage/Warlock)
             {14, {133, 116, 1459}},             // Chronomancer
             {15, {686, 172, 689}},              // Cultist
             {16, {686, 348, 702}},              // Felsworn
@@ -147,6 +148,15 @@ public:
             {31, {403, 8042, 331}},             // Witch Doctor
             {32, {2973, 3044, 1978}},           // Witch Hunter
         };
+
+        // Bloodmage spec_id (1301..1304) -> spells exclusivas da spec.
+        _specSpells = {
+            {1301, {90002, 90007, 90020, 90022}},          // Fleshweaver
+            {1302, {90005, 90009, 90013, 90014}},          // Blood
+            {1303, {90015, 90016, 90017, 90018, 90019}},   // Accursed
+            {1304, {90006, 90008, 90012, 90021, 90023}},   // Eternal
+        };
+
         LOG_INFO("module", "ModAvalonClassSpells {} ({} classes)", _enabled ? "enabled" : "disabled", _defaults.size());
     }
 
@@ -156,7 +166,29 @@ public:
             return;
 
         uint32 const classId = player->getClass();
-        std::vector<uint32> spells = SpellsFor(classId);
+        std::vector<uint32> spells;
+
+        // Config per class sempre tem prioridade (compatibilidade antiga).
+        std::string const key = "Avalon.Class." + std::to_string(classId) + ".Spells";
+        std::string const configured = sConfigMgr->GetOption<std::string>(key, "");
+        if (!configured.empty())
+            spells = ParseSpells(configured);
+        else if (classId == 13)
+        {
+            // Bloodmage: base (spec_id 0) + spells da spec ativa.
+            uint32 const specId = ChosenSpec(player->GetGUID().GetCounter());
+            spells = _defaults[13];
+            auto it = _specSpells.find(specId);
+            if (it != _specSpells.end())
+                spells.insert(spells.end(), it->second.begin(), it->second.end());
+        }
+        else
+        {
+            auto it = _defaults.find(classId);
+            if (it != _defaults.end())
+                spells = it->second;
+        }
+
         uint32 learned = 0;
         for (uint32 spellId : spells)
         {
@@ -168,6 +200,7 @@ public:
             else
                 LOG_ERROR("module", "classe {}: spell {} nao existe no servidor", classId, spellId);
         }
+
         if (learned)
         {
             // Persiste na hora: se o cliente cair sem logout, o personagem
@@ -178,15 +211,11 @@ public:
     }
 
 private:
-    std::vector<uint32> SpellsFor(uint32 classId) const
+    /// Lê spec ativa do personagem (guid -> spec), mesmo padrão do avalon_talents.cpp.
+    static uint32 ChosenSpec(uint64 guid)
     {
-        std::string const key = "Avalon.Class." + std::to_string(classId) + ".Spells";
-        std::string const configured = sConfigMgr->GetOption<std::string>(key, "");
-        if (!configured.empty())
-            return ParseSpells(configured);
-
-        auto it = _defaults.find(classId);
-        return it == _defaults.end() ? std::vector<uint32>{} : it->second;
+        auto result = CharacterDatabase.Query("SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
+        return result ? result->Fetch()[0].Get<uint32>() : 0;
     }
 
     static std::vector<uint32> ParseSpells(std::string const& csv)
@@ -204,6 +233,8 @@ private:
 
     bool _enabled = true;
     std::map<uint32, std::vector<uint32>> _defaults;
+    // Bloodmage: spec_id -> spells exclusivas da spec
+    std::map<uint32, std::vector<uint32>> _specSpells;
 };
 
 /// Mecanica v1 do Bloodmage: ao matar uma criatura, recupera % do HP maximo

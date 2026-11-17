@@ -22,6 +22,14 @@
 #include "Config.h"
 #include "Log.h"
 #include "DatabaseEnv.h"
+#include "ObjectGuid.h"
+
+// Read spec active of the player from avalon_spec (characters DB)
+static inline uint32 ChosenSpecFor(ObjectGuid guid)
+{
+    auto result = CharacterDatabase.Query("SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
+    return result ? result->Fetch()[0].Get<uint32>() : 0;
+}
 
 class ModAvalonBloodmageProgressao : public PlayerScript
 {
@@ -42,10 +50,14 @@ public:
             return;
 
         uint32 playerLevel = player->GetLevel();
+        uint32 const specId = ChosenSpecFor(player->GetGUID().GetCounter());
 
-        // Concede spells da tabela avalon_class_spells (world DB) onde level <= playerLevel e nao conhecidas
+        // Concede spells da tabela avalon_class_spells (world DB) onde level <= playerLevel,
+        // para spec_id = 0 (base) ou spec_id == spec do personagem.
         QueryResult result = WorldDatabase.Query(
-            "SELECT spell, level FROM `avalon_class_spells` WHERE `class` = 13 AND `level` <= {}", playerLevel);
+            "SELECT `spell`, `level` FROM `avalon_class_spells` "
+            "WHERE `class` = 13 AND (`spec_id` = 0 OR `spec_id` = {}) AND `level` <= {}",
+            specId, playerLevel);
 
         if (!result)
         {
@@ -77,10 +89,15 @@ public:
         if (!player || player->getClass() != 13)
             return;
 
+        uint32 playerLevel = player->GetLevel();
+        uint32 const specId = ChosenSpecFor(player->GetGUID().GetCounter());
+
         // Reconcilia: garantir que tudo o que o level do personagem permitir
         // esteja aprendido (cobre o caso de login após restart sem save, etc.)
         QueryResult result = WorldDatabase.Query(
-            "SELECT spell, level FROM `avalon_class_spells` WHERE `class` = 13 AND `level` <= {}", player->GetLevel());
+            "SELECT `spell`, `level` FROM `avalon_class_spells` "
+            "WHERE `class` = 13 AND (`spec_id` = 0 OR `spec_id` = {}) AND `level` <= {}",
+            specId, playerLevel);
 
         if (!result)
         {
