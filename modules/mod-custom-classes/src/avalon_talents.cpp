@@ -133,12 +133,6 @@ bool LearnNode(Player* player, uint32 nodeId, std::string& error)
         return false;
     }
 
-    if (SpentInSpec(guid, node.specId) < node.requiredPoints)
-    {
-        error = "Pontos insuficientes nesta arvore.";
-        return false;
-    }
-
     CharacterDatabase.Execute(
         "REPLACE INTO `avalon_talents` (`guid`, `node`, `rank`) VALUES ({}, {}, {})",
         guid, nodeId, uint32(rank + 1));
@@ -166,8 +160,10 @@ bool SetSpec(Player* player, uint32 specId, std::string& error)
         "REPLACE INTO `avalon_spec` (`guid`, `spec`) VALUES ({}, {})", guid, specId);
     if (previous && previous != specId)
     {
-        // Talentos sao por spec: trocar de spec zera a arvore antiga.
-        CharacterDatabase.Execute("DELETE FROM `avalon_talents` WHERE `guid` = {}", guid);
+        // Talentos sao por spec: trocar de spec zera apenas a arvore da spec anterior.
+        CharacterDatabase.Execute(
+            "DELETE FROM `avalon_talents` WHERE `guid` = {} AND `node` IN (SELECT `id` FROM `avalon_talent_nodes` WHERE `spec_id` = {} )",
+            guid, previous);
         LOG_INFO("module", "Avalon: {} trocou de spec {} -> {} (talentos zerados)",
             player->GetName(), previous, specId);
     }
@@ -338,6 +334,16 @@ private:
 
         CharacterDatabase.Execute(
             "REPLACE INTO `avalon_spec` (`guid`, `spec`) VALUES ({}, {})", player->GetGUID().GetCounter(), specId);
+
+        // Trocar de spec zera apenas a arvore da spec anterior.
+        uint64 const guid = player->GetGUID().GetCounter();
+        uint32 const previousSpec = ChosenSpec(guid);
+        if (previousSpec && previousSpec != specId)
+        {
+            CharacterDatabase.Execute(
+                "DELETE FROM `avalon_talents` WHERE `guid` = {} AND `node` IN (SELECT `id` FROM `avalon_talent_nodes` WHERE `spec_id` = {})",
+                guid, previousSpec);
+        }
 
         LOG_INFO("module", "Avalon: {} escolheu spec {} ({} pontos)",
             player->GetName(), specId, TalentPointsFor(player));
@@ -540,8 +546,7 @@ public:
         {
             uint64 const guid = player->GetGUID().GetCounter();
             CharacterDatabase.Execute("DELETE FROM `avalon_talents` WHERE `guid` = {}", guid);
-            CharacterDatabase.Execute("DELETE FROM `avalon_spec` WHERE `guid` = {}", guid);
-            LOG_INFO("module", "Avalon: {} resetou a spec", player->GetName());
+            LOG_INFO("module", "Avalon: {} resetou os talentos (spec mantida)", player->GetName());
         }
 
         ShowMenu(player, creature);
