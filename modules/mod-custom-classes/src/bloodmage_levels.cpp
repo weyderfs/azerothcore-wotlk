@@ -25,7 +25,7 @@
 #include "ObjectGuid.h"
 
 // Read spec active of the player from avalon_spec (characters DB)
-static inline uint32 ChosenSpecFor(ObjectGuid guid)
+static inline uint32 ChosenSpecFor(uint64 guid)
 {
     auto result = CharacterDatabase.Query("SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
     return result ? result->Fetch()[0].Get<uint32>() : 0;
