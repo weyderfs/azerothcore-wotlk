@@ -330,6 +330,7 @@ public: /* PlayerScript */
     void OnPlayerDuelEnd(Player* winner, Player* loser, DuelCompleteType type);
     void OnPlayerBeforeSendChatMessage(Player* player, uint32& type, uint32& lang, std::string& msg);
     bool OnPlayerCanSpeakUnlearnedLanguage(Player* player, uint32 type, uint32 lang);
+    bool OnAvalonTalentLearn(Player* player, uint32 nodeId);
     void OnPlayerEmote(Player* player, uint32 emote);
     void OnPlayerTextEmote(Player* player, uint32 textEmote, uint32 emoteNum, ObjectGuid guid);
     void OnPlayerSpellCast(Player* player, Spell* spell, bool skipCheck);

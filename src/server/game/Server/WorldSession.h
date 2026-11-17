@@ -877,6 +877,7 @@ public:                                                 // opcodes handlers
     void HandleTabardVendorActivateOpcode(WorldPacket& recvPacket);
     void HandleTrainerListOpcode(WorldPackets::NPC::Hello& packet);
     void HandleTrainerBuySpellOpcode(WorldPackets::NPC::TrainerBuySpell& packet);
+    void HandleAvalonTalentOpcode(WorldPacket& recvData);
     void HandlePetitionShowListOpcode(WorldPacket& recvPacket);
     void HandleGossipHelloOpcode(WorldPacket& recvPacket);
     void HandleGossipSelectOptionOpcode(WorldPacket& recvPacket);

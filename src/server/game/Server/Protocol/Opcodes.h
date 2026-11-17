@@ -1125,6 +1125,7 @@ enum Opcodes : uint16
     CMSG_CALENDAR_GET_NUM_PENDING                   = 0x447,
     SMSG_CALENDAR_SEND_NUM_PENDING                  = 0x448,
     CMSG_SAVE_DANCE                                 = 0x449,
+    CMSG_AVALON_TALENT                              = 0x449, // canal proprio (slot morto)
     SMSG_NOTIFY_DANCE                               = 0x44A,
     CMSG_PLAY_DANCE                                 = 0x44B,
     SMSG_PLAY_DANCE                                 = 0x44C,

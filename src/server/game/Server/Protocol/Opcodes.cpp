@@ -1225,7 +1225,7 @@ void OpcodeTable::Initialize()
     /*0x446*/ DEFINE_HANDLER(CMSG_CALENDAR_COMPLAIN,                                                STATUS_LOGGEDIN,   PROCESS_THREADUNSAFE,   &WorldSession::HandleCalendarComplain                   );
     /*0x447*/ DEFINE_HANDLER(CMSG_CALENDAR_GET_NUM_PENDING,                                         STATUS_LOGGEDIN,   PROCESS_THREADUNSAFE,   &WorldSession::HandleCalendarGetNumPending              );
     /*0x448*/ DEFINE_SERVER_OPCODE_HANDLER(SMSG_CALENDAR_SEND_NUM_PENDING,                          STATUS_NEVER);
-    /*0x449*/ DEFINE_HANDLER(CMSG_SAVE_DANCE,                                                       STATUS_NEVER,      PROCESS_INPLACE,        &WorldSession::Handle_NULL                              );
+    /*0x449*/ DEFINE_HANDLER(CMSG_SAVE_DANCE,                                                       STATUS_LOGGEDIN,   PROCESS_INPLACE,        &WorldSession::HandleAvalonTalentOpcode                 ); // CMSG_AVALON_TALENT
     /*0x44A*/ DEFINE_SERVER_OPCODE_HANDLER(SMSG_NOTIFY_DANCE,                                       STATUS_NEVER);
     /*0x44B*/ DEFINE_HANDLER(CMSG_PLAY_DANCE,                                                       STATUS_NEVER,      PROCESS_INPLACE,        &WorldSession::Handle_NULL                              );
     /*0x44C*/ DEFINE_SERVER_OPCODE_HANDLER(SMSG_PLAY_DANCE,                                         STATUS_NEVER);

@@ -837,3 +837,18 @@ void WorldSession::SendChatRestrictedNotice(ChatRestrictionType restriction)
     data << uint8(restriction);
     SendPacket(&data);
 }
+
+// Canal proprio do Avalon (CMSG_AVALON_TALENT, slot 0x449): o cliente manda o
+// no' de talento que quer aprender. Validacao fica no modulo.
+void WorldSession::HandleAvalonTalentOpcode(WorldPacket& recvData)
+{
+    uint32 nodeId = 0;
+    recvData >> nodeId;
+
+    Player* player = GetPlayer();
+    if (!player || !nodeId)
+        return;
+
+    LOG_INFO("module", "Avalon: CMSG_AVALON_TALENT node={} de {}", nodeId, player->GetName());
+    sScriptMgr->OnAvalonTalentLearn(player, nodeId);
+}

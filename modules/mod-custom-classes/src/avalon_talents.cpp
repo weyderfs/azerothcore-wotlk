@@ -439,29 +439,6 @@ private:
 };
 
 
-/// Manda o estado (spec, ranks, pontos) por addon-message; o addon desenha a
-/// arvore a partir disso.
-static void SendAvalonState(Player* player)
-{
-    uint64 const guid = player->GetGUID().GetCounter();
-    uint32 const spec = ChosenSpec(guid);
-
-    std::string body = "STATE|" + std::to_string(spec) + "|" +
-        std::to_string(SpentPoints(guid)) + "/" + std::to_string(TalentPointsFor(player)) + "|";
-
-    for (auto const& [nodeId, node] : g_nodes)
-    {
-        uint8 const rank = KnownRank(guid, nodeId);
-        if (rank)
-            body += std::to_string(nodeId) + "=" + std::to_string(rank) + ",";
-    }
-
-    // CHAT_MSG_ADDON montado no servidor derrubava o cliente (ERROR #134).
-    // Mensagem de sistema e' um caminho seguro; o addon filtra a linha.
-    LOG_INFO("module", "Avalon: enviando estado para {}: {}", player->GetName(), body.substr(0, 60));
-    ChatHandler(player->GetSession()).SendSysMessage(("AVALONX|" + body).c_str());
-}
-
 /// Canal proprio do cliente: aprende o no' pedido pela UI.
 ///
 /// Dois gatilhos:
@@ -477,8 +454,7 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
-        if (player && player->getClass() == CLASS_BLOODMAGE)
-            SendAvalonState(player);
+        // Estado e' enviado pelo script AIO (lua-scripts). Nada a fazer aqui.
     }
 
     void OnPlayerBeforeSendChatMessage(Player* player, uint32& type, uint32& lang, std::string& msg) override
@@ -500,11 +476,6 @@ public:
 
         std::string const payload = msg.substr(sep + 1);
         LOG_INFO("module", "Avalon: addon msg de {}: {}", player->GetName(), payload);
-        if (payload == "REQ")
-        {
-            SendAvalonState(player);
-            return;
-        }
         if (payload.rfind("LEARN:", 0) != 0)
             return;
 
@@ -519,9 +490,7 @@ public:
             return;
 
         std::string error;
-        if (LearnNode(player, nodeId, error))
-            SendAvalonState(player);
-        else
+        if (!LearnNode(player, nodeId, error))
             ChatHandler(player->GetSession()).SendSysMessage(error, true);
     }
 
@@ -536,7 +505,6 @@ public:
             ChatHandler(player->GetSession()).SendSysMessage(error, true);
             return false;
         }
-        SendAvalonState(player);
         return true;
     }
 };
