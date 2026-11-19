@@ -28,4 +28,8 @@
 /// Usado para provar o caminho servidor -> avalon-ext.dll (gate, prova 3).
 #define AVALON_SMSG_PROBE 0x0A00
 
+/// Spec ativa do personagem (tabela `avalon_spec`, characters DB).
+/// 0 = nenhuma. Definida em `avalon_talents.cpp`.
+uint32 ChosenSpec(uint64 guid);
+
 #endif

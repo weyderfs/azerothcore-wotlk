@@ -33,6 +33,8 @@
 #include "Player.h"
 #include "ScriptMgr.h"
 
+#include "mod_avalon_classes.h"
+
 using namespace Acore::ChatCommands;
 
 #include <map>
@@ -85,13 +87,6 @@ uint32 TalentPointsFor(Player* player)
     if (!player || player->GetLevel() <= FIRST_TALENT_LEVEL)
         return player && player->GetLevel() == FIRST_TALENT_LEVEL ? 1u : 0u;
     return uint32(player->GetLevel()) - (FIRST_TALENT_LEVEL - 1);
-}
-
-uint32 ChosenSpec(uint64 guid)
-{
-    QueryResult result = CharacterDatabase.Query(
-        "SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
-    return result ? result->Fetch()[0].Get<uint32>() : 0;
 }
 
 bool LearnNode(Player* player, uint32 nodeId, std::string& error)
@@ -206,6 +201,16 @@ uint32 SpentInSpec(uint64 guid, uint32 specId)
     return spent;
 }
 } // namespace
+
+/// Spec ativa do personagem (tabela `avalon_spec`, characters DB). 0 = nenhuma.
+/// Fora do namespace anonimo: `avalon_trainer.cpp` e `bloodmage_levels.cpp`
+/// usam a mesma leitura (declarada em mod_avalon_classes.h).
+uint32 ChosenSpec(uint64 guid)
+{
+    QueryResult result = CharacterDatabase.Query(
+        "SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
+    return result ? result->Fetch()[0].Get<uint32>() : 0;
+}
 
 /// Garante idiomas da High Elf no login (GAPS C-24).
 class ModAvalonLanguages : public PlayerScript

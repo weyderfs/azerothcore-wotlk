@@ -24,12 +24,7 @@
 #include "DatabaseEnv.h"
 #include "ObjectGuid.h"
 
-// Read spec active of the player from avalon_spec (characters DB)
-static inline uint32 ChosenSpecFor(uint64 guid)
-{
-    auto result = CharacterDatabase.Query("SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
-    return result ? result->Fetch()[0].Get<uint32>() : 0;
-}
+#include "mod_avalon_classes.h"
 
 class ModAvalonBloodmageProgressao : public PlayerScript
 {
@@ -50,7 +45,7 @@ public:
             return;
 
         uint32 playerLevel = player->GetLevel();
-        uint32 const specId = ChosenSpecFor(player->GetGUID().GetCounter());
+        uint32 const specId = ChosenSpec(player->GetGUID().GetCounter());
 
         // Concede spells da tabela avalon_class_spells (world DB) onde level <= playerLevel,
         // para spec_id = 0 (base) ou spec_id == spec do personagem.
@@ -90,7 +85,7 @@ public:
             return;
 
         uint32 playerLevel = player->GetLevel();
-        uint32 const specId = ChosenSpecFor(player->GetGUID().GetCounter());
+        uint32 const specId = ChosenSpec(player->GetGUID().GetCounter());
 
         // Reconcilia: garantir que tudo o que o level do personagem permitir
         // esteja aprendido (cobre o caso de login após restart sem save, etc.)
