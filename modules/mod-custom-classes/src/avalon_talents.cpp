@@ -57,10 +57,6 @@ struct TalentNode
     std::string name;
 };
 
-// Idiomas que a race 12 precisa ter: sem eles o servidor recusa o chat
-// (LANG_NOT_LEARNED_LANGUAGE) e comandos digitados nunca chegam.
-uint16 const AVALON_LANG_COMMON = 98;
-uint16 const AVALON_LANG_THALASSIAN = 137;
 // Declaracoes antecipadas: os helpers de gossip e de comando usam estes.
 uint32 SpentPoints(uint64 guid);
 uint8 KnownRank(uint64 guid, uint32 nodeId);
@@ -211,46 +207,6 @@ uint32 ChosenSpec(uint64 guid)
         "SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
     return result ? result->Fetch()[0].Get<uint32>() : 0;
 }
-
-/// Garante idiomas da High Elf no login (GAPS C-24).
-class ModAvalonLanguages : public PlayerScript
-{
-public:
-    ModAvalonLanguages() : PlayerScript("ModAvalonLanguages",
-        { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_CAN_SPEAK_UNLEARNED_LANGUAGE }) { }
-
-    /// A race custom nao esta na tabela de idiomas do cliente; o cliente manda
-    /// um idioma que o core considera nao aprendido e recusa o chat. Este hook
-    /// existe exatamente para isso.
-    [[nodiscard]] bool OnPlayerCanSpeakUnlearnedLanguage(Player* player, uint32 /*type*/, uint32 lang) override
-    {
-        if (player && player->getRace() == 12)
-        {
-            LOG_INFO("module", "Avalon: {} fala idioma {} sem skill (race 12)",
-                player->GetName(), lang);
-            return true;
-        }
-        return false;
-    }
-
-    void OnPlayerLogin(Player* player) override
-    {
-        if (!player || player->getRace() != 12)
-            return;
-
-        bool changed = false;
-        for (uint16 skill : { AVALON_LANG_COMMON, AVALON_LANG_THALASSIAN })
-        {
-            if (player->HasSkill(skill))
-                continue;
-            player->SetSkill(skill, 0, 300, 300);
-            changed = true;
-        }
-
-        if (changed)
-            LOG_INFO("module", "Avalon: {} recebeu os idiomas da race 12", player->GetName());
-    }
-};
 
 /// Carrega o catalogo (world DB) e os comandos de spec/talento.
 class ModAvalonTalentSystem : public WorldScript
@@ -589,7 +545,6 @@ private:
 
 void AddAvalonTalentScripts()
 {
-    new ModAvalonLanguages();
     new ModAvalonTalentSystem();
     new ModAvalonTalentCommand();
     new ModAvalonTalentChannel();
