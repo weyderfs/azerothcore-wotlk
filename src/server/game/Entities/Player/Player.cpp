@@ -5333,6 +5333,10 @@ void Player::GetDodgeFromAgility(float& diminishing, float& nondiminishing)
 
     uint8 level = GetLevel();
     uint32 pclass = getClass();
+    // As duas tabelas acima são hardcoded e só têm as classes 1–11; a classe Avalon
+    // usa a linha da sua classe-base (D-05). O `gtChanceToMeleeCrit.dbc` continua
+    // sendo consultado pela classe **real** — ele é estendido para 12–32.
+    uint32 tableClass = AvalonClassBase(pclass);
 
     if (level > GT_MAX_LEVEL)
         level = GT_MAX_LEVEL;
@@ -5347,8 +5351,8 @@ void Player::GetDodgeFromAgility(float& diminishing, float& nondiminishing)
     float bonus_agility = GetStat(STAT_AGILITY) - base_agility;
 
     // calculate diminishing (green in char screen) and non-diminishing (white) contribution
-    diminishing = 100.0f * bonus_agility * dodgeRatio->ratio * crit_to_dodge[pclass - 1];
-    nondiminishing = 100.0f * (dodge_base[pclass - 1] + base_agility * dodgeRatio->ratio * crit_to_dodge[pclass - 1]);
+    diminishing = 100.0f * bonus_agility * dodgeRatio->ratio * crit_to_dodge[tableClass - 1];
+    nondiminishing = 100.0f * (dodge_base[tableClass - 1] + base_agility * dodgeRatio->ratio * crit_to_dodge[tableClass - 1]);
 }
 
 float Player::GetSpellCritFromIntellect()

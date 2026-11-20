@@ -158,11 +158,51 @@ enum Classes
     CLASS_AVALON_WITCH_HUNTER    = 32, // TITLE Witch Hunter
 };
 
-// max+1 for player class — 64 gives room for future classes beyond Avalon's 21
-#define MAX_CLASSES       64
+// max+1 for player class. 33 = maior id (32) + 1, e **não** mais que isso: vários
+// pontos do core fazem `1 << (class - 1)` num uint32 (ex.: sTalentTabPages em
+// DBCStores.cpp, _playerInfo em ObjectMgr.cpp), e um MAX_CLASSES acima de 33 põe
+// esses deslocamentos em UB (shift >= 32).
+#define MAX_CLASSES       33
 
 // Avalon classes occupy class IDs 12–32 (bits 11–31), a contiguous block
 #define CLASSMASK_AVALON_CLASSES (0xFFFFFFFFu << (CLASS_AVALON_BARBARIAN - 1))
+
+/// Classe stock de que cada classe Avalon clona stats/spells/itens no alpha (D-05).
+///
+/// O core indexa tabelas hardcoded por classe (dodge/parry/miss em StatSystem.cpp e
+/// Player.cpp) que só têm linhas para as classes 1–11: sem este mapeamento uma classe
+/// Avalon leria linha zerada e ficaria **sem parry, sem dodge e com miss errado**.
+///
+/// Fonte única do mapeamento: `ashes-of-avalon-client-data/tools/build_skillraceclassinfo.py`
+/// lê esta tabela (não mantenha cópia).
+constexpr uint32 AvalonClassBase(uint32 classId)
+{
+    switch (classId)
+    {
+        case CLASS_AVALON_BARBARIAN:        return CLASS_WARRIOR;
+        case CLASS_AVALON_BLOODMAGE:        return CLASS_MAGE;
+        case CLASS_AVALON_CHRONOMANCER:     return CLASS_MAGE;
+        case CLASS_AVALON_CULTIST:          return CLASS_WARLOCK;
+        case CLASS_AVALON_FELSWORN:         return CLASS_WARLOCK;
+        case CLASS_AVALON_GUARDIAN:         return CLASS_WARRIOR;
+        case CLASS_AVALON_KNIGHT_OF_XOROTH: return CLASS_PALADIN;
+        case CLASS_AVALON_NECROMANCER:      return CLASS_WARLOCK;
+        case CLASS_AVALON_PRIMALIST:        return CLASS_DRUID;
+        case CLASS_AVALON_PYROMANCER:       return CLASS_MAGE;
+        case CLASS_AVALON_RANGER:           return CLASS_HUNTER;
+        case CLASS_AVALON_REAPER:           return CLASS_ROGUE;
+        case CLASS_AVALON_RUNEMASTER:       return CLASS_WARRIOR;
+        case CLASS_AVALON_STARCALLER:       return CLASS_DRUID;
+        case CLASS_AVALON_STORMBRINGER:     return CLASS_SHAMAN;
+        case CLASS_AVALON_SUN_CLERIC:       return CLASS_PRIEST;
+        case CLASS_AVALON_TEMPLAR:          return CLASS_PALADIN;
+        case CLASS_AVALON_TINKER:           return CLASS_MAGE;
+        case CLASS_AVALON_VENOMANCER:       return CLASS_ROGUE;
+        case CLASS_AVALON_WITCH_DOCTOR:     return CLASS_SHAMAN;
+        case CLASS_AVALON_WITCH_HUNTER:     return CLASS_HUNTER;
+        default:                            return classId; // stock: ela mesma
+    }
+}
 
 #define CLASSMASK_ALL_PLAYABLE \
     ((1<<(CLASS_WARRIOR-1))|(1<<(CLASS_PALADIN-1))|(1<<(CLASS_HUNTER-1))| \
