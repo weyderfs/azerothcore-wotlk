@@ -92,28 +92,35 @@ uint8 const FIRST_TALENT_LEVEL = 10;
 std::map<uint32, TalentNode> g_nodes;
 std::map<uint32, std::vector<uint32>> g_nodesBySpec;
 
-/// Janela do throttle do canal AVALONX, em milissegundos: no maximo uma
-/// mensagem processada por personagem a cada janela. 100 ms = 10/s, o mesmo
-/// teto que o core ja' aplica a chat normal (`ChatFlood.MessageCount` 10 por
-/// `ChatFlood.MessageDelay` 1 s). Um clique de talento e' uma acao discreta
-/// atras de um round-trip de servidor e de um redraw da janela, entao um humano
-/// fica bem abaixo de 10/s; um loop de flood fica preso a ~10 conexoes de banco
-/// por segundo por sessao em vez de milhares.
+/// Janela do throttle dos canais Avalon (AVALONX e gossip do NPC), em
+/// milissegundos: no maximo uma acao processada por personagem a cada janela.
+/// 100 ms = 10/s. O canal addon nao tem teto proprio no core: o branch
+/// LANG_ADDON pula o gate de mute e o teto que sobra e'
+/// `ChatFlood.AddonMessageCount` = 100 por `ChatFlood.MessageDelay` = 1 s — 10x
+/// mais frouxo que isto. Entao 10/s e' deliberadamente 10x mais apertado que o
+/// teto real do canal, e mesmo assim generoso: um clique de talento e' uma acao
+/// discreta atras de um round-trip e de um redraw, entao um humano fica bem
+/// abaixo de 10/s. Um loop de flood fica preso a ~10 conexoes de banco por
+/// segundo por sessao em vez de milhares.
 uint32 const AVALON_CHANNEL_COOLDOWN_MS = 100;
 
-/// Instante (ms de jogo) da ultima mensagem AVALONX processada, por guid low do
-/// personagem. Nao cresce com quem sai: `OnPlayerLogout` apaga a entrada, entao
-/// a tabela tem no maximo os Bloodmages online.
+/// Instante (ms de jogo) da ultima acao processada, por guid low do personagem.
+/// Bounded, mas nao "so' os online": `OnPlayerLogout` so' roda quando
+/// `!redirecting` (WorldSession.cpp:833), entao uma sessao destruida por outro
+/// caminho deixa a entrada. O conjunto e' no maximo os personagens que ja'
+/// logaram neste processo; cada entrada e' sobrescrita no proximo allow e
+/// apagada no proximo logout.
 std::unordered_map<ObjectGuid::LowType, uint32> g_avalonChannelLastMs;
 
-/// O canal AVALONX tem dois pontos de entrada que nao rodam na mesma thread: o
-/// addon-message roda na thread do mundo (`CMSG_MESSAGECHAT` e'
-/// PROCESS_THREADUNSAFE) e o opcode `CMSG_AVALON_TALENT` e' PROCESS_INPLACE,
-/// entao pode ser processado na thread de mapa. Por isso a tabela e' protegida;
-/// a secao critica e' um lookup + insert, sem banco e sem I/O.
+/// Os pontos de entrada do modulo que escrevem talento nao rodam todos na mesma
+/// thread: o addon-message (`CMSG_MESSAGECHAT`) e o gossip
+/// (`CMSG_GOSSIP_SELECT_OPTION`) sao PROCESS_THREADUNSAFE (thread do mundo), mas
+/// o opcode `CMSG_AVALON_TALENT` e' PROCESS_INPLACE e pode ser processado na
+/// thread de mapa. Por isso a tabela e' protegida; a secao critica e' um
+/// lookup + insert, sem banco e sem I/O.
 std::mutex g_avalonChannelMutex;
 
-/// true quando a mensagem pode ser processada agora; false para descartar.
+/// true quando a acao pode ser processada agora; false para descartar.
 bool AvalonChannelAllowed(Player* player)
 {
     uint32 const now = uint32(GameTime::GetGameTimeMS().count());
@@ -656,10 +663,16 @@ public:
     {
         player->PlayerTalkClass->ClearMenus();
 
+        // O gossip tem o mesmo custo do canal AVALONX (SetSpec/ResetTalents usam
+        // DirectExecute) e nao tem policy AntiDOS para 0x17C; divide o mesmo
+        // throttle por guid. So' as acoes de escrita consomem: a acao 500 e' a
+        // lista do trainer (leitura) e nao passa por aqui. Throttled = dropa a
+        // escrita em silencio e reenvia o menu; o menu ja' reflete o banco, entao
+        // nao ha' estado obsoleto a corrigir.
         std::string error;
         if (action >= 1 && action <= 4)
         {
-            if (!SetSpec(player, 1300 + action, error))
+            if (AvalonChannelAllowed(player) && !SetSpec(player, 1300 + action, error))
                 ChatHandler(player->GetSession()).SendSysMessage(error, true);
         }
         else if (action == 500)
@@ -669,7 +682,9 @@ public:
         }
         else if (action == 900)
         {
-            ResetTalents(player);
+            // Reset e' repetivel: o menu reabre depois de cada select.
+            if (AvalonChannelAllowed(player))
+                ResetTalents(player);
         }
 
         ShowMenu(player, creature);
