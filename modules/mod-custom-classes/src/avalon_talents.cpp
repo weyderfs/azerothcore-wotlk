@@ -28,6 +28,7 @@
 #include "ChatCommand.h"
 #include "CommandScript.h"
 #include "DatabaseEnv.h"
+#include "GameTime.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
@@ -38,8 +39,10 @@
 using namespace Acore::ChatCommands;
 
 #include <map>
+#include <mutex>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace
@@ -88,6 +91,51 @@ uint8 const FIRST_TALENT_LEVEL = 10;
 
 std::map<uint32, TalentNode> g_nodes;
 std::map<uint32, std::vector<uint32>> g_nodesBySpec;
+
+/// Janela do throttle do canal AVALONX, em milissegundos: no maximo uma
+/// mensagem processada por personagem a cada janela. 100 ms = 10/s, o mesmo
+/// teto que o core ja' aplica a chat normal (`ChatFlood.MessageCount` 10 por
+/// `ChatFlood.MessageDelay` 1 s). Um clique de talento e' uma acao discreta
+/// atras de um round-trip de servidor e de um redraw da janela, entao um humano
+/// fica bem abaixo de 10/s; um loop de flood fica preso a ~10 conexoes de banco
+/// por segundo por sessao em vez de milhares.
+uint32 const AVALON_CHANNEL_COOLDOWN_MS = 100;
+
+/// Instante (ms de jogo) da ultima mensagem AVALONX processada, por guid low do
+/// personagem. Nao cresce com quem sai: `OnPlayerLogout` apaga a entrada, entao
+/// a tabela tem no maximo os Bloodmages online.
+std::unordered_map<ObjectGuid::LowType, uint32> g_avalonChannelLastMs;
+
+/// O canal AVALONX tem dois pontos de entrada que nao rodam na mesma thread: o
+/// addon-message roda na thread do mundo (`CMSG_MESSAGECHAT` e'
+/// PROCESS_THREADUNSAFE) e o opcode `CMSG_AVALON_TALENT` e' PROCESS_INPLACE,
+/// entao pode ser processado na thread de mapa. Por isso a tabela e' protegida;
+/// a secao critica e' um lookup + insert, sem banco e sem I/O.
+std::mutex g_avalonChannelMutex;
+
+/// true quando a mensagem pode ser processada agora; false para descartar.
+bool AvalonChannelAllowed(Player* player)
+{
+    uint32 const now = uint32(GameTime::GetGameTimeMS().count());
+    ObjectGuid::LowType const guid = player->GetGUID().GetCounter();
+
+    std::lock_guard<std::mutex> lock(g_avalonChannelMutex);
+    auto it = g_avalonChannelLastMs.find(guid);
+    if (it != g_avalonChannelLastMs.end() && now - it->second < AVALON_CHANNEL_COOLDOWN_MS)
+        return false;
+
+    g_avalonChannelLastMs[guid] = now;
+    return true;
+}
+
+/// Esquece o throttle de um personagem para a tabela nao crescer no logout.
+void AvalonChannelForget(Player* player)
+{
+    ObjectGuid::LowType const guid = player->GetGUID().GetCounter();
+
+    std::lock_guard<std::mutex> lock(g_avalonChannelMutex);
+    g_avalonChannelLastMs.erase(guid);
+}
 
 bool IsKnownSpec(uint32 specId)
 {
@@ -500,7 +548,12 @@ class ModAvalonTalentChannel : public PlayerScript
 {
 public:
     ModAvalonTalentChannel() : PlayerScript("ModAvalonTalentChannel",
-        { PLAYERHOOK_ON_AVALON_TALENT_LEARN, PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE, PLAYERHOOK_ON_LOGIN }) { }
+        {
+            PLAYERHOOK_ON_AVALON_TALENT_LEARN,
+            PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE,
+            PLAYERHOOK_ON_LOGIN,
+            PLAYERHOOK_ON_LOGOUT,
+        }) { }
 
     void OnPlayerLogin(Player* player) override
     {
@@ -509,6 +562,13 @@ public:
         // ponto de entrada do login. Cobre qualquer escrita que nao chegou ao
         // banco antes do ultimo logout ou crash.
         ReconcileSpells(player);
+    }
+
+    void OnPlayerLogout(Player* player) override
+    {
+        // Sem isto a tabela de throttle cresceria a cada sessao que passa.
+        if (player)
+            AvalonChannelForget(player);
     }
 
     void OnPlayerBeforeSendChatMessage(Player* player, uint32& type, uint32& lang, std::string& msg) override
@@ -526,6 +586,13 @@ public:
         if (sep == std::string::npos)
             sep = msg.find('|');
         if (sep == std::string::npos)
+            return;
+
+        // Throttle do canal: um flood de addon-message nao pode virar uma
+        // conexao de banco por mensagem na thread do mundo. Throttled e'
+        // dropado em silencio; nao ha' estado obsoleto a corrigir porque a
+        // janela relê o estado real via RequestState logo depois.
+        if (!AvalonChannelAllowed(player))
             return;
 
         std::string const payload = msg.substr(sep + 1);
@@ -555,6 +622,12 @@ public:
     bool OnAvalonTalentLearn(Player* player, uint32 nodeId) override
     {
         if (!player || player->getClass() != CLASS_BLOODMAGE)
+            return false;
+
+        // Segundo ponto de entrada do mesmo LearnNode (`CMSG_AVALON_TALENT`,
+        // PROCESS_INPLACE): precisa do mesmo throttle do addon-message, senao o
+        // flood so' troca de opcode.
+        if (!AvalonChannelAllowed(player))
             return false;
 
         std::string error;
