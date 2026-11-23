@@ -93,15 +93,22 @@ std::map<uint32, TalentNode> g_nodes;
 std::map<uint32, std::vector<uint32>> g_nodesBySpec;
 
 /// Janela do throttle dos canais Avalon (AVALONX e gossip do NPC), em
-/// milissegundos: no maximo uma acao processada por personagem a cada janela.
-/// 100 ms = 10/s. O canal addon nao tem teto proprio no core: o branch
-/// LANG_ADDON pula o gate de mute e o teto que sobra e'
-/// `ChatFlood.AddonMessageCount` = 100 por `ChatFlood.MessageDelay` = 1 s — 10x
-/// mais frouxo que isto. Entao 10/s e' deliberadamente 10x mais apertado que o
-/// teto real do canal, e mesmo assim generoso: um clique de talento e' uma acao
-/// discreta atras de um round-trip e de um redraw, entao um humano fica bem
-/// abaixo de 10/s. Um loop de flood fica preso a ~10 conexoes de banco por
-/// segundo por sessao em vez de milhares.
+/// milissegundos: no maximo uma acao de escrita processada por personagem a cada
+/// janela. 100 ms = 10/s.
+///
+/// O core NAO tem teto para isto. `ChatFloodThrottle::ADDON` e' codigo morto: o
+/// unico call site que o escolheria, `ChatHandler.cpp:249`, esta' no `else` que
+/// so' roda quando `lang != LANG_ADDON`, e `UpdateSpeakTime` so' tem dois call
+/// sites (249 e 731), nenhum alcancavel por addon-message. Um canal LANG_ADDON
+/// nao tem flood ceiling nenhum no core; este throttle e' o unico limite que ele
+/// tem.
+///
+/// 100 ms e' julgamento proprio, nao um teto do core: um clique de talento e' uma
+/// acao discreta atras de um round-trip de servidor e de um redraw, entao um
+/// humano fica bem abaixo de 10/s. Um loop de flood fica preso a ~10 ESCRITAS de
+/// banco por segundo por sessao em vez de milhares. Leitura nao entra na conta: o
+/// gossip chama `ShowMenu` -> `ChosenSpec` (SELECT) a cada select, sem throttle
+/// (parqueado na fix round 3).
 uint32 const AVALON_CHANNEL_COOLDOWN_MS = 100;
 
 /// Instante (ms de jogo) da ultima acao processada, por guid low do personagem.
@@ -261,6 +268,13 @@ void DeleteSpecNodes(uint64 guid, uint32 specId)
 
 bool SetSpec(Player* player, uint32 specId, std::string& error)
 {
+    // Checado no dono, nao em cada caller: o gossip alcanca SetSpec sem o guard
+    // de classe que o addon-message e o opcode aplicam na entrada.
+    if (player->getClass() != CLASS_BLOODMAGE)
+    {
+        error = "Spec so existe para Bloodmage.";
+        return false;
+    }
     if (!IsKnownSpec(specId))
     {
         error = "Spec invalida.";
