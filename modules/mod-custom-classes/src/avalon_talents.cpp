@@ -65,6 +65,20 @@ uint32 SpentPoints(uint64 guid);
 uint8 KnownRank(uint64 guid, uint32 nodeId);
 uint32 SpentInSpec(uint64 guid, uint32 specId);
 
+/// Le' o inteiro decimal no inicio de `text` (0 se nao houver digito). Usado
+/// pelo canal AVALONX nas cargas "<VERB>:<id>".
+uint32 ParseLeadingUint(std::string const& text)
+{
+    uint32 value = 0;
+    for (char c : text)
+    {
+        if (c < '0' || c > '9')
+            break;
+        value = value * 10 + uint32(c - '0');
+    }
+    return value;
+}
+
 uint32 const SPEC_FLESHWEAVER = 1301;
 uint32 const SPEC_BLOOD = 1302;
 uint32 const SPEC_ACCURSED = 1303;
@@ -149,7 +163,9 @@ bool LearnNode(Player* player, uint32 nodeId, std::string& error, uint8* newRank
         return false;
     }
 
-    CharacterDatabase.Execute(
+    // Escrita sincrona: o learn pela janela e' seguido por um RequestState do
+    // cliente; com `Execute` (assincrono) essa releitura podia ver o rank antigo.
+    CharacterDatabase.DirectExecute(
         "REPLACE INTO `avalon_talents` (`guid`, `node`, `rank`) VALUES ({}, {}, {})",
         guid, nodeId, uint32(rank + 1));
 
@@ -184,7 +200,7 @@ void DeleteSpecNodes(uint64 guid, uint32 specId)
         ids += std::to_string(nodeId);
     }
 
-    CharacterDatabase.Execute(
+    CharacterDatabase.DirectExecute(
         "DELETE FROM `avalon_talents` WHERE `guid` = {} AND `node` IN ({})", guid, ids);
 }
 
@@ -202,7 +218,7 @@ bool SetSpec(Player* player, uint32 specId, std::string& error)
     }
     uint64 const guid = player->GetGUID().GetCounter();
     uint32 const previous = ChosenSpec(guid);
-    CharacterDatabase.Execute(
+    CharacterDatabase.DirectExecute(
         "REPLACE INTO `avalon_spec` (`guid`, `spec`) VALUES ({}, {})", guid, specId);
 
     // Passivas com rank depois da troca: spec nova nasce sem arvore, entao o
@@ -220,12 +236,25 @@ bool SetSpec(Player* player, uint32 specId, std::string& error)
         rankedTalents = TalentSpellsForGuid(guid);
     }
 
-    // Spec e passivas vao' na mao: o REPLACE e o DELETE acima sao assincronos,
-    // reler o banco aqui pode devolver o estado anterior.
+    // Escrita sincrona (DirectExecute): a spec e a arvore ja' estao no banco
+    // quando este ponto roda. O estado explicito evita qualquer releitura.
     ReconcileSpells(player, specId, rankedTalents);
 
     LOG_INFO("module", "Avalon: {} escolheu spec {}", player->GetName(), specId);
     return true;
+}
+
+/// Zera a arvore de talentos e as passivas com rank, mantendo a spec. Mesma
+/// acao do gossip 900; o canal AVALONX reusa esta funcao em vez de repetir o
+/// DELETE. Escrita sincrona para que o RequestState que a janela manda logo
+/// depois enxergue a arvore ja' vazia.
+void ResetTalents(Player* player)
+{
+    uint64 const guid = player->GetGUID().GetCounter();
+    CharacterDatabase.DirectExecute("DELETE FROM `avalon_talents` WHERE `guid` = {}", guid);
+    LOG_INFO("module", "Avalon: {} resetou os talentos (spec mantida)", player->GetName());
+    // Arvore vazia: as passivas com rank depois do reset sao o conjunto vazio.
+    ReconcileSpells(player, ChosenSpec(guid), std::set<uint32>());
 }
 
 Player* ResolvePlayer(ChatHandler* handler, std::string const& name)
@@ -423,8 +452,8 @@ private:
         }
 
         // A regra (spec, rank, pontos, pre-requisito, required_points, persistencia
-        // e a passiva) e' do LearnNode, dono unico. A mensagem de sucesso le' o rank
-        // que o proprio LearnNode gravou, e nao o banco: o Execute e' assincrono.
+        // e a passiva) e' do LearnNode, dono unico. A mensagem de sucesso usa o
+        // rank que o proprio LearnNode devolve em `newRank`.
         uint8 newRank = 0;
         std::string error;
         if (!LearnNode(player, nodeId, error, &newRank))
@@ -460,13 +489,13 @@ private:
 };
 
 
-/// Canal proprio do cliente: aprende o no' pedido pela UI.
+/// Canal proprio do cliente: a janela manda spec, reset e learn por aqui.
 ///
 /// Dois gatilhos:
 ///   a) hook do core (CMSG 0x449 reescrito pela extensao)
-///   b) addon-message: o addon manda "AVALONX|LEARN:<id>" como WHISPER; o core
-///      chama OnPlayerBeforeSendChatMessage antes de rotear, e o modulo
-///      processa. Este caminho funciona sem DLL nenhuma.
+///   b) addon-message: o addon manda "AVALONX<TAB>LEARN:<id>" (ou SETSPEC:<id>,
+///      ou RESET) como WHISPER; o core chama OnPlayerBeforeSendChatMessage
+///      antes de rotear, e o modulo processa. Este caminho funciona sem DLL.
 class ModAvalonTalentChannel : public PlayerScript
 {
 public:
@@ -477,8 +506,8 @@ public:
     {
         // O estado da arvore e' enviado pelo script AIO (lua-scripts); o que o
         // personagem deve ter no livro de spells e' reconciliado aqui, no
-        // ponto de entrada do login. Cobre tambem escrita assincrona que nao
-        // chegou ao banco antes do ultimo logout.
+        // ponto de entrada do login. Cobre qualquer escrita que nao chegou ao
+        // banco antes do ultimo logout ou crash.
         ReconcileSpells(player);
     }
 
@@ -501,22 +530,26 @@ public:
 
         std::string const payload = msg.substr(sep + 1);
         LOG_INFO("module", "Avalon: addon msg de {}: {}", player->GetName(), payload);
-        if (payload.rfind("LEARN:", 0) != 0)
-            return;
 
-        uint32 nodeId = 0;
-        for (char c : payload.substr(6))
-        {
-            if (c < '0' || c > '9')
-                break;
-            nodeId = nodeId * 10 + uint32(c - '0');
-        }
-        if (!nodeId)
-            return;
-
+        // Os tres verbos que a janela manda; a leitura de estado (RequestState,
+        // ViewSpec) continua no script AIO, que nao muda nada.
         std::string error;
-        if (!LearnNode(player, nodeId, error))
-            ChatHandler(player->GetSession()).SendSysMessage(error, true);
+        if (payload.rfind("LEARN:", 0) == 0)
+        {
+            if (uint32 const nodeId = ParseLeadingUint(payload.substr(6)))
+                if (!LearnNode(player, nodeId, error))
+                    ChatHandler(player->GetSession()).SendSysMessage(error, true);
+        }
+        else if (payload.rfind("SETSPEC:", 0) == 0)
+        {
+            if (uint32 const specId = ParseLeadingUint(payload.substr(8)))
+                if (!SetSpec(player, specId, error))
+                    ChatHandler(player->GetSession()).SendSysMessage(error, true);
+        }
+        else if (payload == "RESET")
+        {
+            ResetTalents(player);
+        }
     }
 
     bool OnAvalonTalentLearn(Player* player, uint32 nodeId) override
@@ -563,12 +596,7 @@ public:
         }
         else if (action == 900)
         {
-            uint64 const guid = player->GetGUID().GetCounter();
-            CharacterDatabase.Execute("DELETE FROM `avalon_talents` WHERE `guid` = {}", guid);
-            LOG_INFO("module", "Avalon: {} resetou os talentos (spec mantida)", player->GetName());
-            // A arvore ficou sem ranks, mas o DELETE acima ainda esta' na fila:
-            // as passivas com rank depois do reset sao o conjunto vazio.
-            ReconcileSpells(player, ChosenSpec(guid), std::set<uint32>());
+            ResetTalents(player);
         }
 
         ShowMenu(player, creature);
