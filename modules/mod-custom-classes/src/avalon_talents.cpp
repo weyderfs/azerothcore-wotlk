@@ -38,6 +38,7 @@
 using namespace Acore::ChatCommands;
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -166,6 +167,27 @@ bool LearnNode(Player* player, uint32 nodeId, std::string& error, uint8* newRank
     return true;
 }
 
+/// Apaga os ranks da spec anterior. Os ids vem do catalogo em memoria: a
+/// subquery com `avalon_talent_nodes` (world DB) a partir da conexao de
+/// personagens nao resolve — a tabela nao existe no character DB.
+void DeleteSpecNodes(uint64 guid, uint32 specId)
+{
+    auto const it = g_nodesBySpec.find(specId);
+    if (it == g_nodesBySpec.end() || it->second.empty())
+        return;
+
+    std::string ids;
+    for (uint32 nodeId : it->second)
+    {
+        if (!ids.empty())
+            ids += ',';
+        ids += std::to_string(nodeId);
+    }
+
+    CharacterDatabase.Execute(
+        "DELETE FROM `avalon_talents` WHERE `guid` = {} AND `node` IN ({})", guid, ids);
+}
+
 bool SetSpec(Player* player, uint32 specId, std::string& error)
 {
     if (!IsKnownSpec(specId))
@@ -182,15 +204,26 @@ bool SetSpec(Player* player, uint32 specId, std::string& error)
     uint32 const previous = ChosenSpec(guid);
     CharacterDatabase.Execute(
         "REPLACE INTO `avalon_spec` (`guid`, `spec`) VALUES ({}, {})", guid, specId);
+
+    // Passivas com rank depois da troca: spec nova nasce sem arvore, entao o
+    // conjunto e' vazio; trocar para a mesma spec preserva a arvore atual.
+    std::set<uint32> rankedTalents;
     if (previous && previous != specId)
     {
         // Talentos sao por spec: trocar de spec zera apenas a arvore da spec anterior.
-        CharacterDatabase.Execute(
-            "DELETE FROM `avalon_talents` WHERE `guid` = {} AND `node` IN (SELECT `id` FROM `avalon_talent_nodes` WHERE `spec_id` = {} )",
-            guid, previous);
+        DeleteSpecNodes(guid, previous);
         LOG_INFO("module", "Avalon: {} trocou de spec {} -> {} (talentos zerados)",
             player->GetName(), previous, specId);
     }
+    else
+    {
+        rankedTalents = TalentSpellsForGuid(guid);
+    }
+
+    // Spec e passivas vao' na mao: o REPLACE e o DELETE acima sao assincronos,
+    // reler o banco aqui pode devolver o estado anterior.
+    ReconcileSpells(player, specId, rankedTalents);
+
     LOG_INFO("module", "Avalon: {} escolheu spec {}", player->GetName(), specId);
     return true;
 }
@@ -239,6 +272,46 @@ uint32 ChosenSpec(uint64 guid)
     QueryResult result = CharacterDatabase.Query(
         "SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
     return result ? result->Fetch()[0].Get<uint32>() : 0;
+}
+
+/// Passivas que aquele personagem deve ter pelos nos de talento com rank > 0.
+/// Le' os ranks do character DB e mapeia pelo catalogo ja' carregado. Fora do
+/// namespace anonimo: `bloodmage_levels.cpp` chama isto no reconcile.
+std::set<uint32> TalentSpellsForGuid(uint64 guid)
+{
+    std::set<uint32> spells;
+
+    // So' ranks da spec ativa contam: `LearnNode` exige que o no' seja da spec
+    // do personagem, entao um rank de outra spec so' existe em estado
+    // inconsistente (ex.: troca de spec por um transporte que nao zerou a
+    // arvore). Ignora-lo impede que a passiva orfa volte a ser concedida.
+    uint32 const activeSpec = ChosenSpec(guid);
+
+    QueryResult rows = CharacterDatabase.Query(
+        "SELECT `node` FROM `avalon_talents` WHERE `guid` = {} AND `rank` > 0", guid);
+    if (!rows)
+        return spells;
+
+    do
+    {
+        uint32 const nodeId = rows->Fetch()[0].Get<uint32>();
+        auto it = g_nodes.find(nodeId);
+        if (it != g_nodes.end() && it->second.spell && it->second.specId == activeSpec)
+            spells.insert(it->second.spell);
+    } while (rows->NextRow());
+
+    return spells;
+}
+
+/// Toda passiva declarada no catalogo de talentos. O reconcile usa isto como
+/// limite de remocao: so' spells daqui (ou do kit de classe) podem sair.
+std::set<uint32> AllTalentSpells()
+{
+    std::set<uint32> spells;
+    for (auto const& entry : g_nodes)
+        if (entry.second.spell)
+            spells.insert(entry.second.spell);
+    return spells;
 }
 
 /// Carrega o catalogo (world DB) e os comandos de spec/talento.
@@ -318,32 +391,17 @@ private:
             handler->SendSysMessage("Avalon: spec so existe para Bloodmage.");
             return false;
         }
-        if (player->GetLevel() < FIRST_TALENT_LEVEL)
+
+        // A regra (spec valida, nivel, troca de arvore, spells de classe e
+        // passivas) e' do SetSpec, dono unico. O comando so' resolve o jogador
+        // e formata a saida.
+        std::string error;
+        if (!SetSpec(player, specId, error))
         {
-            handler->SendSysMessage("Avalon: spec a partir do nivel 10.");
+            handler->SendSysMessage(error);
             return false;
         }
-        if (!IsKnownSpec(specId))
-        {
-            handler->SendSysMessage("Avalon: spec invalida (1301 Fleshweaver, 1302 Blood, 1303 Accursed, 1304 Eternal).");
-            return false;
-        }
 
-        CharacterDatabase.Execute(
-            "REPLACE INTO `avalon_spec` (`guid`, `spec`) VALUES ({}, {})", player->GetGUID().GetCounter(), specId);
-
-        // Trocar de spec zera apenas a arvore da spec anterior.
-        uint64 const guid = player->GetGUID().GetCounter();
-        uint32 const previousSpec = ChosenSpec(guid);
-        if (previousSpec && previousSpec != specId)
-        {
-            CharacterDatabase.Execute(
-                "DELETE FROM `avalon_talents` WHERE `guid` = {} AND `node` IN (SELECT `id` FROM `avalon_talent_nodes` WHERE `spec_id` = {})",
-                guid, previousSpec);
-        }
-
-        LOG_INFO("module", "Avalon: {} escolheu spec {} ({} pontos)",
-            player->GetName(), specId, TalentPointsFor(player));
         handler->PSendSysMessage("Avalon: spec de %s definida para %u.", player->GetName().c_str(), specId);
         return true;
     }
@@ -417,7 +475,11 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
-        // Estado e' enviado pelo script AIO (lua-scripts). Nada a fazer aqui.
+        // O estado da arvore e' enviado pelo script AIO (lua-scripts); o que o
+        // personagem deve ter no livro de spells e' reconciliado aqui, no
+        // ponto de entrada do login. Cobre tambem escrita assincrona que nao
+        // chegou ao banco antes do ultimo logout.
+        ReconcileSpells(player);
     }
 
     void OnPlayerBeforeSendChatMessage(Player* player, uint32& type, uint32& lang, std::string& msg) override
@@ -504,6 +566,9 @@ public:
             uint64 const guid = player->GetGUID().GetCounter();
             CharacterDatabase.Execute("DELETE FROM `avalon_talents` WHERE `guid` = {}", guid);
             LOG_INFO("module", "Avalon: {} resetou os talentos (spec mantida)", player->GetName());
+            // A arvore ficou sem ranks, mas o DELETE acima ainda esta' na fila:
+            // as passivas com rank depois do reset sao o conjunto vazio.
+            ReconcileSpells(player, ChosenSpec(guid), std::set<uint32>());
         }
 
         ShowMenu(player, creature);

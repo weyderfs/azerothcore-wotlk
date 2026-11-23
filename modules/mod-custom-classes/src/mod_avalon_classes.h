@@ -18,6 +18,10 @@
 #ifndef MOD_AVALON_CLASSES_H
 #define MOD_AVALON_CLASSES_H
 
+#include <set>
+
+class Player;
+
 /// Primeira classe Avalon (ID 12, conforme Fase 2 do plano)
 #define AVALON_CLASS_ID CLASS_AVALON_BARBARIAN
 
@@ -31,5 +35,25 @@
 /// Spec ativa do personagem (tabela `avalon_spec`, characters DB).
 /// 0 = nenhuma. Definida em `avalon_talents.cpp`.
 uint32 ChosenSpec(uint64 guid);
+
+/// Passivas que aquele personagem deve ter pelos nos de talento **da spec
+/// ativa** com rank > 0. Le' os ranks do character DB e usa o catalogo ja'
+/// carregado em memoria. Definida em `avalon_talents.cpp`.
+std::set<uint32> TalentSpellsForGuid(uint64 guid);
+
+/// Toda passiva declarada pelo catalogo de talentos. O reconcile so' remove
+/// spells deste conjunto (mais o kit de classe), nunca spell fora dele.
+/// Definida em `avalon_talents.cpp`.
+std::set<uint32> AllTalentSpells();
+
+/// Reconcilia o livro de spells com o catalogo do modulo: concede o que a
+/// spec/nivel e os nos com rank permitem e remove o que deixou de valer.
+/// Le' spec e ranks do banco. Definida em `bloodmage_levels.cpp`.
+void ReconcileSpells(Player* player);
+
+/// Reconcilia com estado explicito: usa `specId` e `rankedTalents` como dados,
+/// sem reler o banco. Usado logo apos gravar spec ou limpar ranks, cujas
+/// escritas assincronas ainda podem nao ter chegado.
+void ReconcileSpells(Player* player, uint32 specId, std::set<uint32> const& rankedTalents);
 
 #endif

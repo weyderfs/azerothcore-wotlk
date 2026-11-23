@@ -24,7 +24,121 @@
 #include "DatabaseEnv.h"
 #include "ObjectGuid.h"
 
+#include <set>
+
 #include "mod_avalon_classes.h"
+
+namespace
+{
+/// Primeira classe Avalon com progressao de spells por spec (id 13).
+uint8 const BLOODMAGE_CLASS = 13;
+
+/// Spells do kit de classe (world DB) permitidos pela spec e pelo nivel.
+/// `spec_id = 0` e' base da classe e vale para qualquer spec.
+std::set<uint32> ClassSpellsFor(uint32 specId, uint32 level)
+{
+    std::set<uint32> spells;
+
+    QueryResult result = WorldDatabase.Query(
+        "SELECT `spell` FROM `avalon_class_spells` "
+        "WHERE `class` = 13 AND (`spec_id` = 0 OR `spec_id` = {}) AND `level` <= {}",
+        specId, level);
+    if (!result)
+        return spells;
+
+    do
+    {
+        spells.insert(result->Fetch()[0].Get<uint32>());
+    } while (result->NextRow());
+
+    return spells;
+}
+
+/// Todo spell que o kit de classe pode conceder, sem filtro de spec/nivel.
+/// E' o limite de remocao: so' spell daqui (ou do catalogo de talentos) sai.
+std::set<uint32> ClassSpellCatalogue()
+{
+    std::set<uint32> spells;
+
+    QueryResult result = WorldDatabase.Query(
+        "SELECT `spell` FROM `avalon_class_spells` WHERE `class` = 13");
+    if (!result)
+        return spells;
+
+    do
+    {
+        spells.insert(result->Fetch()[0].Get<uint32>());
+    } while (result->NextRow());
+
+    return spells;
+}
+} // namespace
+
+/// Dono unico de "spells que o personagem deve ter": kit de classe permitido
+/// pela spec/nivel **uniao** as passivas dos nos de talento com rank.
+///
+/// Concede o que falta e remove o que deixou de valer. A remocao se limita ao
+/// catalogo do modulo (kit de classe + catalogo de talentos): recompensa de
+/// quest, compra de trainer fora do kit ou racial nunca sao tocadas.
+///
+/// `specId` e `rankedTalents` valem como dados. A sobrecarga de um argumento
+/// le' os dois do banco; os chamadores que acabaram de gravar spec ou limpar
+/// ranks usam esta forma, porque `Execute` e' assincrono e a releitura poderia
+/// devolver o estado anterior.
+void ReconcileSpells(Player* player, uint32 specId, std::set<uint32> const& rankedTalents)
+{
+    if (!player || player->getClass() != BLOODMAGE_CLASS)
+        return;
+
+    // O que o personagem DEVE ter. Por construcao allowed e' subconjunto de
+    // catalogue (mesma classe / mesmos nos), entao iterar o catalogo cobre os
+    // dois sentidos.
+    std::set<uint32> allowed = ClassSpellsFor(specId, player->GetLevel());
+    allowed.insert(rankedTalents.begin(), rankedTalents.end());
+
+    // O que o modulo PODE conceder.
+    std::set<uint32> catalogue = ClassSpellCatalogue();
+    std::set<uint32> const talentCatalogue = AllTalentSpells();
+    catalogue.insert(talentCatalogue.begin(), talentCatalogue.end());
+
+    uint32 granted = 0;
+    uint32 removed = 0;
+    for (uint32 spellId : catalogue)
+    {
+        bool const has = player->HasSpell(spellId);
+        bool const should = allowed.count(spellId) != 0;
+
+        if (should && !has)
+        {
+            player->learnSpell(spellId, false);
+            ++granted;
+        }
+        else if (!should && has)
+        {
+            // Mesma remocao que o Eluna RemoveSpell fazia (spec mask completa).
+            player->removeSpell(spellId, SPEC_MASK_ALL, false);
+            ++removed;
+        }
+    }
+
+    if (granted || removed)
+    {
+        player->SaveToDB(false, false);
+        LOG_INFO("module", "Avalon: reconcile de {} (spec {}, nivel {}): {} concedidas, {} removidas",
+            player->GetName(), specId, uint32(player->GetLevel()), granted, removed);
+    }
+}
+
+/// Le' spec e ranks do banco. Seguro onde nao ha escrita pendente (login,
+/// subida de nivel).
+void ReconcileSpells(Player* player)
+{
+    if (!player || player->getClass() != BLOODMAGE_CLASS)
+        return;
+
+    uint64 const guid = player->GetGUID().GetCounter();
+    ReconcileSpells(player, ChosenSpec(guid), TalentSpellsForGuid(guid));
+}
 
 class ModAvalonBloodmageProgressao : public PlayerScript
 {
@@ -32,7 +146,6 @@ public:
     ModAvalonBloodmageProgressao() :
         PlayerScript("ModAvalonBloodmageProgressao",
         {
-            PLAYERHOOK_ON_LOGIN,
             PLAYERHOOK_ON_LEVEL_CHANGED,
         })
     {
@@ -41,82 +154,9 @@ public:
 
     void OnPlayerLevelChanged(Player* player, uint8 /*oldLevel*/) override
     {
-        if (!player || player->getClass() != 13)
-            return;
-
-        uint32 playerLevel = player->GetLevel();
-        uint32 const specId = ChosenSpec(player->GetGUID().GetCounter());
-
-        // Concede spells da tabela avalon_class_spells (world DB) onde level <= playerLevel,
-        // para spec_id = 0 (base) ou spec_id == spec do personagem.
-        QueryResult result = WorldDatabase.Query(
-            "SELECT `spell`, `level` FROM `avalon_class_spells` "
-            "WHERE `class` = 13 AND (`spec_id` = 0 OR `spec_id` = {}) AND `level` <= {}",
-            specId, playerLevel);
-
-        if (!result)
-        {
-            LOG_INFO("module", "ModAvalonBloodmageProgressao: no rows for class 13 at level {}", playerLevel);
-            return;
-        }
-
-        int granted = 0;
-        do
-        {
-            uint32 spellId = result->Fetch()[0].Get<uint32>();
-            if (!player->HasSpell(spellId))
-            {
-                player->learnSpell(spellId, false);
-                ++granted;
-                LOG_INFO("module", "ModAvalonBloodmageProgressao: player {} learned spell {} at level {}", player->GetName(), spellId, playerLevel);
-            }
-        } while (result->NextRow());
-
-        if (granted)
-        {
-            player->SaveToDB(false, false);
-            LOG_INFO("module", "ModAvalonBloodmageProgressao: {} spells granted to {} at level {}", granted, player->GetName(), playerLevel);
-        }
-    }
-
-    void OnPlayerLogin(Player* player) override
-    {
-        if (!player || player->getClass() != 13)
-            return;
-
-        uint32 playerLevel = player->GetLevel();
-        uint32 const specId = ChosenSpec(player->GetGUID().GetCounter());
-
-        // Reconcilia: garantir que tudo o que o level do personagem permitir
-        // esteja aprendido (cobre o caso de login após restart sem save, etc.)
-        QueryResult result = WorldDatabase.Query(
-            "SELECT `spell`, `level` FROM `avalon_class_spells` "
-            "WHERE `class` = 13 AND (`spec_id` = 0 OR `spec_id` = {}) AND `level` <= {}",
-            specId, playerLevel);
-
-        if (!result)
-        {
-            LOG_INFO("module", "ModAvalonBloodmageProgressao: no rows for class 13 on login");
-            return;
-        }
-
-        int reconciled = 0;
-        do
-        {
-            uint32 spellId = result->Fetch()[0].Get<uint32>();
-            if (!player->HasSpell(spellId))
-            {
-                player->learnSpell(spellId, false);
-                ++reconciled;
-                LOG_INFO("module", "ModAvalonBloodmageProgressao: reconciled spell {} for {} at level {}", spellId, player->GetName(), player->GetLevel());
-            }
-        } while (result->NextRow());
-
-        if (reconciled)
-        {
-            player->SaveToDB(false, false);
-            LOG_INFO("module", "ModAvalonBloodmageProgressao: {} spells reconciled for {} at level {}", reconciled, player->GetName(), player->GetLevel());
-        }
+        // Subir de nivel concede o que o nivel liberou e mantem as passivas de
+        // talento ja' aprendidas (elas entram na uniao do reconcile).
+        ReconcileSpells(player);
     }
 };
 
