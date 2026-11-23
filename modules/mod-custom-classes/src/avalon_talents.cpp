@@ -103,7 +103,7 @@ bool PrerequisitesMet(uint64 guid, TalentNode const& node)
            satisfied(node.prereq, node.prereqRank) || satisfied(node.prereq2, node.prereqRank2);
 }
 
-bool LearnNode(Player* player, uint32 nodeId, std::string& error)
+bool LearnNode(Player* player, uint32 nodeId, std::string& error, uint8* newRank = nullptr)
 {
     auto it = g_nodes.find(nodeId);
     if (it == g_nodes.end())
@@ -142,6 +142,12 @@ bool LearnNode(Player* player, uint32 nodeId, std::string& error)
         return false;
     }
 
+    if (SpentInSpec(guid, node.specId) < node.requiredPoints)
+    {
+        error = "Pontos na spec insuficientes.";
+        return false;
+    }
+
     CharacterDatabase.Execute(
         "REPLACE INTO `avalon_talents` (`guid`, `node`, `rank`) VALUES ({}, {}, {})",
         guid, nodeId, uint32(rank + 1));
@@ -151,6 +157,9 @@ bool LearnNode(Player* player, uint32 nodeId, std::string& error)
     // (spell = 0) o no' e' so' catalogo, como os 64 do alpha.
     if (node.spell && !player->HasSpell(node.spell))
         player->learnSpell(node.spell, false);
+
+    if (newRank)
+        *newRank = rank + 1;
 
     LOG_INFO("module", "Avalon: {} aprendeu {} rank {}/{}",
         player->GetName(), node.name, rank + 1, uint32(node.maxRank));
@@ -354,55 +363,20 @@ private:
             handler->SendSysMessage("Avalon: no inexistente.");
             return false;
         }
-        TalentNode const& node = it->second;
-        uint64 const guid = player->GetGUID().GetCounter();
 
-        QueryResult specResult = CharacterDatabase.Query(
-            "SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
-        uint32 const chosenSpec = specResult ? specResult->Fetch()[0].Get<uint32>() : 0;
-        if (chosenSpec != node.specId)
+        // A regra (spec, rank, pontos, pre-requisito, required_points, persistencia
+        // e a passiva) e' do LearnNode, dono unico. A mensagem de sucesso le' o rank
+        // que o proprio LearnNode gravou, e nao o banco: o Execute e' assincrono.
+        uint8 newRank = 0;
+        std::string error;
+        if (!LearnNode(player, nodeId, error, &newRank))
         {
-            handler->PSendSysMessage("Avalon: %s nao esta na spec deste no (%u).",
-                player->GetName().c_str(), node.specId);
+            handler->SendSysMessage(error);
             return false;
         }
 
-        uint8 const rank = KnownRank(guid, nodeId);
-        if (rank >= node.maxRank)
-        {
-            handler->SendSysMessage("Avalon: no ja esta no rank maximo.");
-            return false;
-        }
-
-        uint32 const total = TalentPointsFor(player);
-        uint32 const spent = SpentPoints(guid);
-        if (spent >= total)
-        {
-            handler->PSendSysMessage("Avalon: sem pontos (%u/%u).", spent, total);
-            return false;
-        }
-
-        if (!PrerequisitesMet(guid, node))
-        {
-            handler->SendSysMessage("Avalon: pre-requisito nao atendido.");
-            return false;
-        }
-
-        if (SpentInSpec(guid, node.specId) < node.requiredPoints)
-        {
-            handler->PSendSysMessage("Avalon: precisa de %u pontos na spec (tem %u).",
-                node.requiredPoints, SpentInSpec(guid, node.specId));
-            return false;
-        }
-
-        CharacterDatabase.Execute(
-            "REPLACE INTO `avalon_talents` (`guid`, `node`, `rank`) VALUES ({}, {}, {})",
-            guid, nodeId, uint32(rank + 1));
-
-        LOG_INFO("module", "Avalon: {} aprendeu {} rank {}/{}",
-            player->GetName(), node.name, rank + 1, uint32(node.maxRank));
         handler->PSendSysMessage("Avalon: %s aprendeu %s (%u/%u).", player->GetName().c_str(),
-            node.name.c_str(), rank + 1, uint32(node.maxRank));
+            it->second.name.c_str(), uint32(newRank), uint32(it->second.maxRank));
         return true;
     }
 
