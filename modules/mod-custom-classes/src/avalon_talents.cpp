@@ -146,6 +146,12 @@ bool LearnNode(Player* player, uint32 nodeId, std::string& error)
         "REPLACE INTO `avalon_talents` (`guid`, `node`, `rank`) VALUES ({}, {}, {})",
         guid, nodeId, uint32(rank + 1));
 
+    // A passiva e' spell real com SPELL_ATTR0_PASSIVE: o core casta no learn
+    // (Player.cpp:3335) e a aura sobrevive a relog. Sem passiva declarada
+    // (spell = 0) o no' e' so' catalogo, como os 64 do alpha.
+    if (node.spell && !player->HasSpell(node.spell))
+        player->learnSpell(node.spell, false);
+
     LOG_INFO("module", "Avalon: {} aprendeu {} rank {}/{}",
         player->GetName(), node.name, rank + 1, uint32(node.maxRank));
     return true;
