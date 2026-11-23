@@ -53,6 +53,8 @@ struct TalentNode
     uint32 spell = 0;
     uint32 prereq = 0;
     uint8 prereqRank = 0;
+    uint32 prereq2 = 0;
+    uint8 prereqRank2 = 0;
     uint32 requiredPoints = 0;
     std::string name;
 };
@@ -83,6 +85,22 @@ uint32 TalentPointsFor(Player* player)
     if (!player || player->GetLevel() <= FIRST_TALENT_LEVEL)
         return player && player->GetLevel() == FIRST_TALENT_LEVEL ? 1u : 0u;
     return uint32(player->GetLevel()) - (FIRST_TALENT_LEVEL - 1);
+}
+
+/// Regra do kit: os pre-requisitos de um no' sao alternativas (OU), nao
+/// exigencias cumulativas. 86 dos 184 nos do kit declaram dois pre-requisitos e
+/// 9 deles apontam para pares que ocupam o mesmo slot. Um no' so' fica bloqueado
+/// quando declara ao menos um pre-requisito e nenhum deles esta satisfeito; no
+/// sem pre-requisitos sempre passa.
+bool PrerequisitesMet(uint64 guid, TalentNode const& node)
+{
+    auto satisfied = [&](uint32 prereq, uint8 rank)
+    {
+        return prereq != 0 && KnownRank(guid, prereq) >= rank;
+    };
+
+    return !(node.prereq || node.prereq2) ||
+           satisfied(node.prereq, node.prereqRank) || satisfied(node.prereq2, node.prereqRank2);
 }
 
 bool LearnNode(Player* player, uint32 nodeId, std::string& error)
@@ -118,7 +136,7 @@ bool LearnNode(Player* player, uint32 nodeId, std::string& error)
         return false;
     }
 
-    if (node.prereq && KnownRank(guid, node.prereq) < node.prereqRank)
+    if (!PrerequisitesMet(guid, node))
     {
         error = "Pre-requisito nao atendido.";
         return false;
@@ -218,7 +236,8 @@ public:
     {
         QueryResult result = WorldDatabase.Query(
             "SELECT `id`, `spec_id`, `tier`, `column_index`, `max_rank`, `spell`,"
-            " `prereq`, `prereq_rank`, `required_points`, `name` FROM `avalon_talent_nodes`");
+            " `prereq`, `prereq_rank`, `required_points`, `prereq2`, `prereq_rank2`,"
+            " `name` FROM `avalon_talent_nodes`");
         if (!result)
         {
             LOG_ERROR("module", "Avalon: avalon_talent_nodes vazia; talentos desativados");
@@ -240,7 +259,9 @@ public:
             node.prereq = fields[6].Get<uint32>();
             node.prereqRank = fields[7].Get<uint8>();
             node.requiredPoints = fields[8].Get<uint32>();
-            node.name = fields[9].Get<std::string>();
+            node.prereq2 = fields[9].Get<uint32>();
+            node.prereqRank2 = fields[10].Get<uint8>();
+            node.name = fields[11].Get<std::string>();   // era fields[9]
 
             g_nodes[node.id] = node;
             g_nodesBySpec[node.specId].push_back(node.id);
@@ -355,15 +376,10 @@ private:
             return false;
         }
 
-        if (node.prereq)
+        if (!PrerequisitesMet(guid, node))
         {
-            uint8 const prereqRank = KnownRank(guid, node.prereq);
-            if (prereqRank < node.prereqRank)
-            {
-                handler->PSendSysMessage("Avalon: falta o pre-requisito %u (rank %u).",
-                    node.prereq, uint32(node.prereqRank));
-                return false;
-            }
+            handler->SendSysMessage("Avalon: pre-requisito nao atendido.");
+            return false;
         }
 
         if (SpentInSpec(guid, node.specId) < node.requiredPoints)
