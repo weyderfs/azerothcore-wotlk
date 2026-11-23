@@ -87,11 +87,11 @@ uint32 TalentPointsFor(Player* player)
     return uint32(player->GetLevel()) - (FIRST_TALENT_LEVEL - 1);
 }
 
-/// Regra do kit: os pre-requisitos de um no' sao alternativas (OU), nao
-/// exigencias cumulativas. 86 dos 184 nos do kit declaram dois pre-requisitos e
-/// 9 deles apontam para pares que ocupam o mesmo slot. Um no' so' fica bloqueado
-/// quando declara ao menos um pre-requisito e nenhum deles esta satisfeito; no
-/// sem pre-requisitos sempre passa.
+/// Os pre-requisitos de um no' sao alternativas (OU), nao exigencias
+/// cumulativas: bloqueia so' quando o no' declara ao menos um pre-requisito e
+/// nenhum deles esta satisfeito; no' sem pre-requisitos sempre passa.
+/// Os pares alternativos vem do kit de referencia; neste catalogo, 64 nos,
+/// 12 deles com dois pre-requisitos.
 bool PrerequisitesMet(uint64 guid, TalentNode const& node)
 {
     auto satisfied = [&](uint32 prereq, uint8 rank)
