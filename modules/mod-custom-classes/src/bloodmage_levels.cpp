@@ -16,6 +16,7 @@
  */
 
 #include "PlayerScript.h"
+#include "WorldScript.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "Player.h"
@@ -23,8 +24,11 @@
 #include "Log.h"
 #include "DatabaseEnv.h"
 #include "ObjectGuid.h"
+#include "ScriptMgr.h"
 
 #include <set>
+#include <unordered_map>
+#include <vector>
 
 #include "mod_avalon_classes.h"
 
@@ -33,24 +37,34 @@ namespace
 /// Primeira classe Avalon com progressao de spells por spec (id 13).
 uint8 const BLOODMAGE_CLASS = 13;
 
-/// Spells do kit de classe (world DB) permitidos pela spec e pelo nivel.
+/// Uma linha de `avalon_class_spells`: o catalogo do kit de classe.
+struct ClassSpell
+{
+    uint32 spell = 0;
+    uint32 specId = 0;
+    uint32 level = 0;
+};
+
+/// O kit de classe inteiro (world DB), carregado uma vez no startup.
+///
+/// Antes cada `ClassSpellsFor`/`ClassSpellCatalogue` era uma consulta ao world
+/// DB, e as duas rodam no reconcile — que acontece no login, na troca de spec e
+/// a cada nivel. Catalogo nao muda em runtime: uma leitura no boot resolve.
+std::vector<ClassSpell> g_classSpells;
+
+/// spell -> spec_id, da mesma leitura. O filtro da lista do trainer precisa
+/// desta projecao; manter as duas no mesmo lugar evita duas leituras da mesma
+/// tabela em dois arquivos.
+std::unordered_map<uint32, uint32> g_classSpellSpecs;
+
+/// Spells do kit de classe permitidos pela spec e pelo nivel.
 /// `spec_id = 0` e' base da classe e vale para qualquer spec.
 std::set<uint32> ClassSpellsFor(uint32 specId, uint32 level)
 {
     std::set<uint32> spells;
-
-    QueryResult result = WorldDatabase.Query(
-        "SELECT `spell` FROM `avalon_class_spells` "
-        "WHERE `class` = 13 AND (`spec_id` = 0 OR `spec_id` = {}) AND `level` <= {}",
-        specId, level);
-    if (!result)
-        return spells;
-
-    do
-    {
-        spells.insert(result->Fetch()[0].Get<uint32>());
-    } while (result->NextRow());
-
+    for (ClassSpell const& entry : g_classSpells)
+        if ((entry.specId == 0 || entry.specId == specId) && entry.level <= level)
+            spells.insert(entry.spell);
     return spells;
 }
 
@@ -59,20 +73,46 @@ std::set<uint32> ClassSpellsFor(uint32 specId, uint32 level)
 std::set<uint32> ClassSpellCatalogue()
 {
     std::set<uint32> spells;
-
-    QueryResult result = WorldDatabase.Query(
-        "SELECT `spell` FROM `avalon_class_spells` WHERE `class` = 13");
-    if (!result)
-        return spells;
-
-    do
-    {
-        spells.insert(result->Fetch()[0].Get<uint32>());
-    } while (result->NextRow());
-
+    for (ClassSpell const& entry : g_classSpells)
+        spells.insert(entry.spell);
     return spells;
 }
 } // namespace
+
+void LoadClassSpellCatalogue()
+{
+    g_classSpells.clear();
+    g_classSpellSpecs.clear();
+
+    QueryResult result = WorldDatabase.Query(
+        "SELECT `spell`, `spec_id`, `level` FROM `avalon_class_spells` WHERE `class` = {}",
+        uint32(BLOODMAGE_CLASS));
+    if (!result)
+    {
+        LOG_ERROR("module", "Avalon: avalon_class_spells vazia para a classe {}; kit desativado",
+            uint32(BLOODMAGE_CLASS));
+        return;
+    }
+
+    do
+    {
+        Field* fields = result->Fetch();
+        ClassSpell entry;
+        entry.spell = fields[0].Get<uint32>();
+        entry.specId = fields[1].Get<uint32>();
+        entry.level = fields[2].Get<uint32>();
+        g_classSpells.push_back(entry);
+        g_classSpellSpecs[entry.spell] = entry.specId;
+    } while (result->NextRow());
+
+    LOG_INFO("module", "Avalon: {} spells de kit carregadas para a classe {}",
+        uint32(g_classSpells.size()), uint32(BLOODMAGE_CLASS));
+}
+
+std::unordered_map<uint32, uint32> const& ClassSpellSpecs()
+{
+    return g_classSpellSpecs;
+}
 
 /// Dono unico de "spells que o personagem deve ter": kit de classe permitido
 /// pela spec/nivel **uniao** as passivas dos nos de talento com rank.
@@ -160,7 +200,21 @@ public:
     }
 };
 
+/// Carrega o catalogo do kit de classe uma vez, no boot.
+class ModAvalonClassSpellCatalogue : public WorldScript
+{
+public:
+    ModAvalonClassSpellCatalogue() :
+        WorldScript("ModAvalonClassSpellCatalogue", { WORLDHOOK_ON_STARTUP }) { }
+
+    void OnStartup() override
+    {
+        LoadClassSpellCatalogue();
+    }
+};
+
 void AddAvalonBloodmageProgressaoScripts()
 {
     new ModAvalonBloodmageProgressao();
+    new ModAvalonClassSpellCatalogue();
 }

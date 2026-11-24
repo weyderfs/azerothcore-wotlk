@@ -65,8 +65,26 @@ struct TalentNode
 
 // Declaracoes antecipadas: os helpers de gossip e de comando usam estes.
 uint32 SpentPoints(uint64 guid);
-uint8 KnownRank(uint64 guid, uint32 nodeId);
-uint32 SpentInSpec(uint64 guid, uint32 specId);
+
+/// Ranks do personagem numa leitura: node -> rank.
+///
+/// O `LearnNode` precisa de quatro respostas (rank do no' clicado, pontos
+/// gastos, pontos na spec e pre-requisitos) e cada uma lia o banco por no' do
+/// catalogo: ~21 SELECTs por clique. As quatro saem destas linhas, entao o
+/// clique custa uma leitura em vez de vinte.
+using RankMap = std::unordered_map<uint32, uint8>;
+RankMap ReadRanks(uint64 guid);
+
+/// Pontos gastos = soma dos ranks.
+uint32 SpentTotal(RankMap const& ranks);
+
+/// Pontos gastos na arvore de uma spec.
+uint32 SpentInSpec(RankMap const& ranks, uint32 specId);
+
+/// Pre-requisitos do no' sao alternativas (OU), nao exigencias cumulativas:
+/// bloqueia so' quando o no' declara ao menos um pre-requisito e nenhum deles
+/// esta' satisfeito; no' sem pre-requisitos sempre passa.
+bool PrerequisitesMet(TalentNode const& node, RankMap const& ranks);
 
 /// Le' o inteiro decimal no inicio de `text` (0 se nao houver digito). Usado
 /// pelo canal AVALONX nas cargas "<VERB>:<id>".
@@ -169,11 +187,14 @@ uint32 TalentPointsFor(Player* player)
 /// nenhum deles esta satisfeito; no' sem pre-requisitos sempre passa.
 /// Os pares alternativos vem do kit de referencia; neste catalogo, 64 nos,
 /// 12 deles com dois pre-requisitos.
-bool PrerequisitesMet(uint64 guid, TalentNode const& node)
+bool PrerequisitesMet(TalentNode const& node, RankMap const& ranks)
 {
     auto satisfied = [&](uint32 prereq, uint8 rank)
     {
-        return prereq != 0 && KnownRank(guid, prereq) >= rank;
+        if (!prereq)
+            return false;
+        auto const found = ranks.find(prereq);
+        return found != ranks.end() && found->second >= rank;
     };
 
     return !(node.prereq || node.prereq2) ||
@@ -198,7 +219,11 @@ bool LearnNode(Player* player, uint32 nodeId, std::string& error, uint8* newRank
         return false;
     }
 
-    uint8 const rank = KnownRank(guid, nodeId);
+    // Uma leitura responde as quatro perguntas abaixo.
+    RankMap const ranks = ReadRanks(guid);
+    auto const rankIt = ranks.find(nodeId);
+    uint8 const rank = rankIt == ranks.end() ? uint8(0) : rankIt->second;
+
     if (rank >= node.maxRank)
     {
         error = "Rank maximo atingido.";
@@ -206,20 +231,20 @@ bool LearnNode(Player* player, uint32 nodeId, std::string& error, uint8* newRank
     }
 
     uint32 const total = TalentPointsFor(player);
-    uint32 const spent = SpentPoints(guid);
+    uint32 const spent = SpentTotal(ranks);
     if (spent >= total)
     {
         error = "Sem pontos disponiveis.";
         return false;
     }
 
-    if (!PrerequisitesMet(guid, node))
+    if (!PrerequisitesMet(node, ranks))
     {
         error = "Pre-requisito nao atendido.";
         return false;
     }
 
-    if (SpentInSpec(guid, node.specId) < node.requiredPoints)
+    if (SpentInSpec(ranks, node.specId) < node.requiredPoints)
     {
         error = "Pontos na spec insuficientes.";
         return false;
@@ -336,28 +361,50 @@ Player* ResolvePlayer(ChatHandler* handler, std::string const& name)
     return ObjectAccessor::FindPlayerByName(name);
 }
 
-/// Pontos gastos = soma dos ranks aprendidos.
+/// Pontos gastos = soma dos ranks.
 uint32 SpentPoints(uint64 guid)
 {
-    QueryResult result = CharacterDatabase.Query(
-        "SELECT COALESCE(SUM(`rank`), 0) FROM `avalon_talents` WHERE `guid` = {}", guid);
-    if (!result)
-        return 0;
-    return result->Fetch()[0].Get<uint32>();
+    return SpentTotal(ReadRanks(guid));
 }
 
-uint8 KnownRank(uint64 guid, uint32 nodeId)
+RankMap ReadRanks(uint64 guid)
 {
+    RankMap ranks;
     QueryResult result = CharacterDatabase.Query(
-        "SELECT `rank` FROM `avalon_talents` WHERE `guid` = {} AND `node` = {}", guid, nodeId);
-    return result ? result->Fetch()[0].Get<uint8>() : 0;
+        "SELECT `node`, `rank` FROM `avalon_talents` WHERE `guid` = {}", guid);
+    if (!result)
+        return ranks;
+
+    do
+    {
+        Field* fields = result->Fetch();
+        ranks[fields[0].Get<uint32>()] = fields[1].Get<uint8>();
+    } while (result->NextRow());
+
+    return ranks;
 }
 
-uint32 SpentInSpec(uint64 guid, uint32 specId)
+uint32 SpentTotal(RankMap const& ranks)
 {
     uint32 spent = 0;
-    for (uint32 nodeId : g_nodesBySpec[specId])
-        spent += KnownRank(guid, nodeId);
+    for (auto const& entry : ranks)
+        spent += entry.second;
+    return spent;
+}
+
+uint32 SpentInSpec(RankMap const& ranks, uint32 specId)
+{
+    auto const nodes = g_nodesBySpec.find(specId);
+    if (nodes == g_nodesBySpec.end())
+        return 0;
+
+    uint32 spent = 0;
+    for (uint32 nodeId : nodes->second)
+    {
+        auto const found = ranks.find(nodeId);
+        if (found != ranks.end())
+            spent += found->second;
+    }
     return spent;
 }
 } // namespace
@@ -619,7 +666,9 @@ public:
             return;
 
         std::string const payload = msg.substr(sep + 1);
-        LOG_INFO("module", "Avalon: addon msg de {}: {}", player->GetName(), payload);
+        // Detalhe de transporte: fica em DEBUG. O que interessa (aprendeu, trocou
+        // de spec, resetou) sai em INFO nos proprios donos.
+        LOG_DEBUG("module", "Avalon: addon msg de {}: {}", player->GetName(), payload);
 
         // Os tres verbos que a janela manda; a leitura de estado (RequestState,
         // ViewSpec) continua no script AIO, que nao muda nada.
@@ -683,12 +732,19 @@ public:
         // DirectExecute) e nao tem policy AntiDOS para 0x17C; divide o mesmo
         // throttle por guid. So' as acoes de escrita consomem: a acao 500 e' a
         // lista do trainer (leitura) e nao passa por aqui. Throttled = dropa a
-        // escrita em silencio e reenvia o menu; o menu ja' reflete o banco, entao
-        // nao ha' estado obsoleto a corrigir.
+        // escrita em silencio; o menu ja' reflete o banco, entao nao ha' estado
+        // obsoleto a corrigir.
+        //
+        // O reenvio do menu custa um SELECT (ChosenSpec) e nao tinha teto: um
+        // cliente em loop no gossip virava uma consulta por pacote na thread do
+        // mundo. Recusado o throttle, o reenvio tambem e' dropado — o menu que
+        // ja' esta' na tela do jogador continua valido, porque a escrita que ele
+        // pediu foi dropada junto.
+        bool const allowed = AvalonChannelAllowed(player);
         std::string error;
         if (action >= 1 && action <= 4)
         {
-            if (AvalonChannelAllowed(player) && !SetSpec(player, 1300 + action, error))
+            if (allowed && !SetSpec(player, 1300 + action, error))
                 ChatHandler(player->GetSession()).SendSysMessage(error, true);
         }
         else if (action == 500)
@@ -699,11 +755,12 @@ public:
         else if (action == 900)
         {
             // Reset e' repetivel: o menu reabre depois de cada select.
-            if (AvalonChannelAllowed(player))
+            if (allowed)
                 ResetTalents(player);
         }
 
-        ShowMenu(player, creature);
+        if (allowed)
+            ShowMenu(player, creature);
         return true;
     }
 

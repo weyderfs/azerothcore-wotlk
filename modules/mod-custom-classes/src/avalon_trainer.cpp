@@ -11,7 +11,6 @@
  */
 
 #include "Creature.h"
-#include "DatabaseEnv.h"
 #include "Log.h"
 #include "NPCPackets.h"
 #include "Player.h"
@@ -28,6 +27,9 @@ namespace
 /// Primeira classe Avalon (12 = Barbarian).
 constexpr uint8 AVALON_FIRST_CLASS = 12;
 
+/// Unica classe com kit de spells por spec hoje.
+constexpr uint8 CLASS_BLOODMAGE = 13;
+
 /// Spell real ensinada por um wrapper (efeito LEARN_SPELL).
 /// 0 quando a spell nao e' wrapper.
 uint32 RealSpellOf(uint32 spellId)
@@ -43,23 +45,6 @@ uint32 RealSpellOf(uint32 spellId)
     return 0;
 }
 
-/// spell -> spec_id do catalogo da classe (world DB). 0 = base.
-std::unordered_map<uint32, uint32> ClassSpellSpecs(uint8 classId)
-{
-    std::unordered_map<uint32, uint32> specs;
-    QueryResult result = WorldDatabase.Query(
-        "SELECT `spell`, `spec_id` FROM `avalon_class_spells` WHERE `class` = {}", classId);
-    if (!result)
-        return specs;
-
-    do
-    {
-        Field* fields = result->Fetch();
-        specs[fields[0].Get<uint32>()] = fields[1].Get<uint32>();
-    } while (result->NextRow());
-
-    return specs;
-}
 } // namespace
 
 class ModAvalonTrainerSpecFilter : public PlayerScript
@@ -77,11 +62,16 @@ public:
     void OnPlayerBeforeReceiveSpellListFromTrainer(Player* player, Creature* /*trainer*/,
         WorldPackets::NPC::TrainerList& trainerList) override
     {
-        if (!player || player->getClass() < AVALON_FIRST_CLASS || trainerList.Spells.empty())
+        uint8 const classId = player->getClass();
+        if (!player || classId < AVALON_FIRST_CLASS || trainerList.Spells.empty())
             return;
 
-        uint8 const classId = player->getClass();
-        auto const specs = ClassSpellSpecs(classId);
+        // So' a classe 13 tem catalogo de kit por spec; nas outras a lista
+        // passa intacta.
+        if (classId != CLASS_BLOODMAGE)
+            return;
+
+        auto const& specs = ClassSpellSpecs();
         if (specs.empty())
             return;
 

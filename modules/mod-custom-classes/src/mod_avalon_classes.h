@@ -19,6 +19,7 @@
 #define MOD_AVALON_CLASSES_H
 
 #include <set>
+#include <unordered_map>
 
 class Player;
 
@@ -55,5 +56,14 @@ void ReconcileSpells(Player* player);
 /// sem reler o banco. Usado logo apos gravar spec ou limpar ranks, cujas
 /// escritas assincronas ainda podem nao ter chegado.
 void ReconcileSpells(Player* player, uint32 specId, std::set<uint32> const& rankedTalents);
+
+/// Carrega `avalon_class_spells` da classe 13 para memoria. Uma vez, no boot:
+/// o catalogo nao muda em runtime e o reconcile roda no login, na troca de spec
+/// e a cada nivel. Definida em `bloodmage_levels.cpp`.
+void LoadClassSpellCatalogue();
+
+/// spec_id do kit a que um spell real pertence; 0 = base da classe.
+/// Vazio enquanto o catalogo nao for carregado. Definida em `bloodmage_levels.cpp`.
+std::unordered_map<uint32, uint32> const& ClassSpellSpecs();
 
 #endif
