@@ -261,7 +261,7 @@ public:
         log << uint8(0);
         killer->SendMessageToSet(&log, true);
 
-        LOG_INFO("module", "Bloodmage {} recuperou {} HP por abate ({}% de {})",
+        LOG_DEBUG("module", "Bloodmage {} recuperou {} HP por abate ({}% de {})",
             killer->GetName(), gained, _percent, killer->GetMaxHealth());
     }
 
@@ -345,7 +345,7 @@ class spell_avalon_form_stance : public SpellScript
                 continue;
 
             caster->RemoveAura(other);
-            LOG_INFO("module", "Bloodmage {} forma {} substituida por {}",
+            LOG_DEBUG("module", "Bloodmage {} forma {} substituida por {}",
                 caster->GetName(), other, self);
         }
     }
@@ -371,7 +371,7 @@ class spell_avalon_form_gate : public SpellScript
         if (!required || caster->HasAura(required))
             return SPELL_CAST_OK;
 
-        LOG_INFO("module", "Bloodmage {} spell {} recusada: falta forma {}",
+        LOG_DEBUG("module", "Bloodmage {} spell {} recusada: falta forma {}",
             caster->GetName(), GetSpellInfo()->Id, required);
         return SPELL_FAILED_ONLY_SHAPESHIFT;
     }
@@ -448,7 +448,7 @@ class spell_avalon_vein_lance : public SpellScript
             return;
 
         caster->ModifyHealth(-int32(cost));
-        LOG_INFO("module", "Vein Lance de {} custou {} HP", caster->GetName(), cost);
+        LOG_DEBUG("module", "Vein Lance de {} custou {} HP", caster->GetName(), cost);
     }
 
     void HandleHit(SpellEffIndex /*effIndex*/)
@@ -461,7 +461,7 @@ class spell_avalon_vein_lance : public SpellScript
         uint32 const bonus = uint32(0.685f * ShadowPower(caster));
         DealBonusDamage(caster, target, bonus, SPELL_SCHOOL_MASK_SHADOW, GetSpellInfo());
         if (bonus)
-            LOG_INFO("module", "Vein Lance de {} +{} dano", caster->GetName(), bonus);
+            LOG_DEBUG("module", "Vein Lance de {} +{} dano", caster->GetName(), bonus);
     }
 
     void Register() override
@@ -502,7 +502,7 @@ class spell_avalon_wounddrinker : public SpellScript
             SendHealLog(caster, caster, GetSpellInfo()->Id, heal, damage / 2 - heal);
         }
 
-        LOG_INFO("module", "Wounddrinker de {} consumiu {} Crimson Debt: {} dano, {} cura",
+        LOG_DEBUG("module", "Wounddrinker de {} consumiu {} Crimson Debt: {} dano, {} cura",
             caster->GetName(), stacks, damage, heal);
     }
 
@@ -528,7 +528,7 @@ class spell_avalon_crimson_eclipse : public SpellScript
         uint32 const bonus = uint32(0.5f * ShadowPower(caster) + spirit);
         DealBonusDamage(caster, target, bonus, SPELL_SCHOOL_MASK_SHADOW, GetSpellInfo());
         if (bonus)
-            LOG_INFO("module", "Crimson Eclipse de {} +{} dano", caster->GetName(), bonus);
+            LOG_DEBUG("module", "Crimson Eclipse de {} +{} dano", caster->GetName(), bonus);
     }
 
     void Register() override
@@ -583,7 +583,7 @@ class spell_avalon_maul_bite : public SpellScript
             SendHealLog(caster, caster, GetSpellInfo()->Id, heal, damage - heal);
         }
 
-        LOG_INFO("module", "Maul Bite de {}: {} dano, {} cura", caster->GetName(), damage, heal);
+        LOG_DEBUG("module", "Maul Bite de {}: {} dano, {} cura", caster->GetName(), damage, heal);
     }
 
     void Register() override
@@ -618,7 +618,7 @@ public:
         GrantCrimsonDebt(player, spellId);
 
         uint8 const reserve = GrantCounter(player, SPELL_VITAL_RESERVE);
-        LOG_INFO("module", "Bloodmage {} Vital Reserve {}", player->GetName(), reserve);
+        LOG_DEBUG("module", "Bloodmage {} Vital Reserve {}", player->GetName(), reserve);
     }
 
     void OnPlayerCreatureKill(Player* killer, Creature* /*killed*/) override
@@ -636,14 +636,14 @@ private:
         if (!stacks)
             return;
 
-        LOG_INFO("module", "Bloodmage {} Crimson Debt {} (spell {})",
+        LOG_DEBUG("module", "Bloodmage {} Crimson Debt {} (spell {})",
             player->GetName(), stacks, sourceSpell);
 
         if (stacks >= CounterCap(SPELL_CRIMSON_DEBT))
         {
             player->AddAura(SPELL_OVERFLOW, player);
             player->RemoveAura(SPELL_CRIMSON_DEBT);
-            LOG_INFO("module", "Bloodmage {} Overflow aplicado (Crimson Debt cheio)",
+            LOG_DEBUG("module", "Bloodmage {} Overflow aplicado (Crimson Debt cheio)",
                 player->GetName());
         }
     }
@@ -674,13 +674,13 @@ class spell_avalon_veinburst : public SpellScript
             Unit::DealDamage(caster, target, 60u * consumed, nullptr, DIRECT_DAMAGE,
                 SPELL_SCHOOL_MASK_SHADOW, GetSpellInfo(), false);
 
-        LOG_INFO("module", "Veinburst de {} consumiu {} Crimson Debt", caster->GetName(), consumed);
+        LOG_DEBUG("module", "Veinburst de {} consumiu {} Crimson Debt", caster->GetName(), consumed);
     }
 
     void OnCastCheck()
     {
         Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        LOG_INFO("module", "Veinburst cast detectado ({})",
+        LOG_DEBUG("module", "Veinburst cast detectado ({})",
             caster ? caster->GetName() : "sem player");
     }
 
@@ -724,7 +724,7 @@ class spell_avalon_hemostasis : public SpellScript
         log << uint8(0);
         caster->SendMessageToSet(&log, true);
 
-        LOG_INFO("module", "Hemostasis de {} consumiu 3 Crimson Debt (+{} HP)", caster->GetName(), gained);
+        LOG_DEBUG("module", "Hemostasis de {} consumiu 3 Crimson Debt (+{} HP)", caster->GetName(), gained);
     }
 
     void Register() override
