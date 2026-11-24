@@ -500,7 +500,9 @@ private:
             return false;
         }
 
-        handler->PSendSysMessage("Avalon: spec de %s definida para %u.", player->GetName().c_str(), specId);
+        // fmt, nao printf: PSendSysMessage formata com fmt::format, entao "%s"
+        // saia literal no console. Era codigo morto de observabilidade.
+        handler->PSendSysMessage("Avalon: spec de {} definida para {}.", player->GetName(), specId);
         return true;
     }
 
@@ -531,8 +533,8 @@ private:
             return false;
         }
 
-        handler->PSendSysMessage("Avalon: %s aprendeu %s (%u/%u).", player->GetName().c_str(),
-            it->second.name.c_str(), uint32(newRank), uint32(it->second.maxRank));
+        handler->PSendSysMessage("Avalon: {} aprendeu {} ({}/{}).", player->GetName(),
+            it->second.name, uint32(newRank), uint32(it->second.maxRank));
         return true;
     }
 
@@ -550,8 +552,8 @@ private:
             "SELECT `spec` FROM `avalon_spec` WHERE `guid` = {}", guid);
         uint32 const spec = specResult ? specResult->Fetch()[0].Get<uint32>() : 0;
 
-        handler->PSendSysMessage("Avalon: %s nivel %u spec %u pontos %u/%u",
-            player->GetName().c_str(), uint32(player->GetLevel()), spec,
+        handler->PSendSysMessage("Avalon: {} nivel {} spec {} pontos {}/{}",
+            player->GetName(), uint32(player->GetLevel()), spec,
             SpentPoints(guid), TalentPointsFor(player));
         return true;
     }
