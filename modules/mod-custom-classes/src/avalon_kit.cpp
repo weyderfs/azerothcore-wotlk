@@ -54,7 +54,7 @@ Player* AvalonResolvePlayer(ChatHandler* handler, std::string const& name)
 }
 
 bool HandleKitProbe(ChatHandler* handler, std::string const& playerName,
-    Optional<std::string> targetName)
+    Optional<uint32> targetEntry)
 {
     Player* player = AvalonResolvePlayer(handler, playerName);
     if (!player)
@@ -74,14 +74,13 @@ bool HandleKitProbe(ChatHandler* handler, std::string const& playerName,
 
     PrintAuras(handler, player);
 
-    if (targetName && !targetName->empty())
+    if (targetEntry && *targetEntry)
     {
-        Creature* target = player->FindNearestCreature(
-            uint32(std::stoul(*targetName)), 30.0f, false);
+        Creature* target = player->FindNearestCreature(*targetEntry, 30.0f, false);
         if (!target)
         {
             handler->PSendSysMessage("AvalonKit: criatura {} nao encontrada em 30 yd.",
-                *targetName);
+                *targetEntry);
             return false;
         }
 
@@ -136,7 +135,7 @@ bool HandleKitSet(ChatHandler* handler, std::string const& playerName,
     uint32 const hp = std::max<uint32>(1,
         player->GetMaxHealth() * std::min<uint32>(hpPercent, 100) / 100);
     player->SetHealth(hp);
-    player->SetPower(POWER_RAGE, std::min(RAGE_MAX, ragePercent * RAGE_MAX / 100));
+    player->SetPower(POWER_RAGE, RAGE_MAX * std::min<uint32>(ragePercent, 100) / 100);
 
     handler->PSendSysMessage("AvalonKit: set hp={}/{} rage={}/{}",
         player->GetHealth(), player->GetMaxHealth(),

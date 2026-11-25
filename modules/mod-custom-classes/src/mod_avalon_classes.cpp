@@ -595,9 +595,9 @@ class spell_avalon_maul_bite : public SpellScript
 
 /// Suture (90007): soma 0.58*SP + 0.25*SPI + 0.2*AP a' cura da doadora.
 /// `SetHitHeal` roda antes do handler do efeito (SpellScript.h: "executed just
-/// before specified effect handler call"), entao o EffectHeal do core soma a
-/// base do DBC ao bonus — cura, crit e log continuam sendo do core. Se o script
-/// nao carregar, a spell ainda cura o valor do DBC.
+/// before specified effect handler call"); o core usa `m_healing` no hit
+/// (Spell.cpp), entao cura, crit e log continuam sendo do core. Se o script nao
+/// carregar, a spell ainda cura o valor do DBC.
 class spell_avalon_suture : public SpellScript
 {
     PrepareSpellScript(spell_avalon_suture);

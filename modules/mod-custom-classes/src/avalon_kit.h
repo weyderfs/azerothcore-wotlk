@@ -12,9 +12,12 @@ class Player;
 /// Vive aqui porque o `.avalon` inteiro precisa da mesma resolucao.
 Player* AvalonResolvePlayer(ChatHandler* handler, std::string const& name);
 
-/// `.avalon probe <player> [alvo]` — estado observavel em linhas chave=valor.
+/// `.avalon probe <player> [entry]` — estado observavel em linhas chave=valor.
+/// `entry` e' `Optional<uint32>`: o parser do ChatCommands recusa token nao
+/// numerico antes de chegar aqui (antes era `std::stoul`, que lancava e
+/// derrubava o worldserver).
 bool HandleKitProbe(ChatHandler* handler, std::string const& playerName,
-    Optional<std::string> targetName);
+    Optional<uint32> targetEntry);
 
 /// `.avalon cast <player> <spellId> [entry]` — casta para si ou para a criatura
 /// mais proxima com `entry` em 30 yd. Os `.cast` do core sao Console::No.
