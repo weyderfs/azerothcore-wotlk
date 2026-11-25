@@ -620,6 +620,29 @@ class spell_avalon_suture : public SpellScript
     }
 };
 
+/// Coagulum (90009/90105): a area dispara 90105 a cada 1 s; este script soma
+/// 0.15*SP em cada tick. O dano base vem do DBC (20).
+class spell_avalon_coagulum : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_coagulum);
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        uint32 const bonus = uint32(0.15f * ShadowPower(caster));
+        DealBonusDamage(caster, target, bonus, SPELL_SCHOOL_MASK_SHADOW, GetSpellInfo());
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_avalon_coagulum::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
 /// Recursos do Bloodmage: Crimson Debt (90000), Overflow (90010) e Vital Reserve (90022).
 class ModAvalonBloodmageResource : public PlayerScript
 {
@@ -784,5 +807,6 @@ void Addmod_custom_classesScripts()
     RegisterSpellScript(spell_avalon_maul_bite);
     RegisterSpellScript(spell_avalon_form_gate);
     RegisterSpellScript(spell_avalon_suture);
+    RegisterSpellScript(spell_avalon_coagulum);
     AddAvalonTalentScripts();
 }
