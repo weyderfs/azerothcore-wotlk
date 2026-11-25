@@ -592,6 +592,34 @@ class spell_avalon_maul_bite : public SpellScript
     }
 };
 
+/// Suture (90007): soma 0.58*SP + 0.25*SPI + 0.2*AP a' cura da doadora.
+/// `SetHitHeal` roda antes do handler do efeito (SpellScript.h: "executed just
+/// before specified effect handler call"), entao o EffectHeal do core soma a
+/// base do DBC ao bonus — cura, crit e log continuam sendo do core. Se o script
+/// nao carregar, a spell ainda cura o valor do DBC.
+class spell_avalon_suture : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_suture);
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        float const spirit = caster->GetStat(STAT_SPIRIT);
+        float const power = caster->GetTotalAttackPowerValue(BASE_ATTACK);
+        int32 const bonus = int32(0.58f * ShadowPower(caster) + 0.25f * spirit + 0.2f * power);
+        if (bonus > 0)
+            SetHitHeal(GetHitHeal() + bonus);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_avalon_suture::HandleHit, EFFECT_0, SPELL_EFFECT_HEAL);
+    }
+};
+
 /// Recursos do Bloodmage: Crimson Debt (90000), Overflow (90010) e Vital Reserve (90022).
 class ModAvalonBloodmageResource : public PlayerScript
 {
@@ -755,5 +783,6 @@ void Addmod_custom_classesScripts()
     RegisterSpellScript(spell_avalon_arterial_burst);
     RegisterSpellScript(spell_avalon_maul_bite);
     RegisterSpellScript(spell_avalon_form_gate);
+    RegisterSpellScript(spell_avalon_suture);
     AddAvalonTalentScripts();
 }
