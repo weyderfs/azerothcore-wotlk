@@ -23,6 +23,7 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
+#include "SpellAuraEffects.h"
 #include "SpellAuras.h"
 #include "SpellMgr.h"
 #include "SpellScript.h"
@@ -643,6 +644,112 @@ class spell_avalon_coagulum : public SpellScript
     }
 };
 
+/// Thornblood (90008): o escudo de dano nativo (aura 15) e' criado pela doadora
+/// com valor fixo. Aqui o valor passa a ser 0.035*SP por golpe recebido.
+/// O kit pede "a cada 0,5 s"; o escudo dispara por golpe — mesmo efeito para
+/// quem bate, sem proc novo (D-K3).
+class spell_avalon_thornblood : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_thornblood);
+
+    void HandleApply(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        // A aura ainda nao foi aplicada: o hook OnEffectHitTarget roda antes do
+        // handler do efeito. GetHitAura() devolve a instancia que o core criou
+        // para este alvo (Spell.cpp: m_spellAura antes do efeito).
+        Aura* aura = GetHitAura();
+        if (!aura)
+            return;
+
+        int32 const amount = std::max<int32>(1, int32(0.035f * ShadowPower(caster)));
+        if (AuraEffect* effect = aura->GetEffect(0))
+            effect->ChangeAmount(amount);
+
+        LOG_DEBUG("module", "Thornblood de {}: {} por golpe",
+            caster->GetName(), amount);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_avalon_thornblood::HandleApply, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+    }
+};
+
+/// Skin Graft (90020): consome ate' 5 Vital Reserve e cura 0.5*SP por stack
+/// consumido. Sem gate de cast: nao existe string de erro nossa no cliente e
+/// a cura proporcional comunica sozinha (D-K2).
+class spell_avalon_skin_graft : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_skin_graft);
+
+    uint8 _consumed = 0;
+
+    void ConsumeReserve()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        Aura* reserve = caster->GetAura(SPELL_VITAL_RESERVE);
+        if (!reserve)
+            return;
+
+        _consumed = std::min<uint8>(reserve->GetStackAmount(), 5);
+        if (!_consumed)
+            return;
+
+        reserve->ModStackAmount(-int32(_consumed));
+        LOG_DEBUG("module", "Skin Graft de {} consumiu {} Vital Reserve",
+            caster->GetName(), uint32(_consumed));
+    }
+
+    void HandleHeal(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !_consumed)
+            return;
+
+        int32 const bonus = int32(0.5f * ShadowPower(caster) * _consumed);
+        if (bonus > 0)
+            SetHitHeal(GetHitHeal() + bonus);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_avalon_skin_graft::ConsumeReserve);
+        OnEffectHitTarget += SpellEffectFn(spell_avalon_skin_graft::HandleHeal, EFFECT_0, SPELL_EFFECT_HEAL);
+    }
+};
+
+/// Crimson Communion (90021): a cura continua vindo da doadora (HoT); o que
+/// falta e' o Rage. 10 Rage = 100 pontos (o core guarda Rage em 0..1000).
+class spell_avalon_communion : public SpellScript
+{
+    PrepareSpellScript(spell_avalon_communion);
+
+    void GrantRage()
+    {
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+
+        uint32 const before = caster->GetPower(POWER_RAGE);
+        uint32 const after = std::min<uint32>(caster->GetMaxPower(POWER_RAGE), before + 100);
+        caster->SetPower(POWER_RAGE, after);
+        LOG_DEBUG("module", "Crimson Communion de {}: rage {} -> {}",
+            caster->GetName(), before, after);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_avalon_communion::GrantRage);
+    }
+};
+
 /// Recursos do Bloodmage: Crimson Debt (90000), Overflow (90010) e Vital Reserve (90022).
 class ModAvalonBloodmageResource : public PlayerScript
 {
@@ -808,5 +915,8 @@ void Addmod_custom_classesScripts()
     RegisterSpellScript(spell_avalon_form_gate);
     RegisterSpellScript(spell_avalon_suture);
     RegisterSpellScript(spell_avalon_coagulum);
+    RegisterSpellScript(spell_avalon_thornblood);
+    RegisterSpellScript(spell_avalon_skin_graft);
+    RegisterSpellScript(spell_avalon_communion);
     AddAvalonTalentScripts();
 }
