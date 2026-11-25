@@ -34,6 +34,7 @@
 #include "Player.h"
 #include "ScriptMgr.h"
 
+#include "avalon_kit.h"
 #include "mod_avalon_classes.h"
 
 using namespace Acore::ChatCommands;
@@ -351,16 +352,6 @@ void ResetTalents(Player* player)
     ReconcileSpells(player, ChosenSpec(guid), std::set<uint32>());
 }
 
-Player* ResolvePlayer(ChatHandler* handler, std::string const& name)
-{
-    if (Player* self = handler->GetPlayer())
-    {
-        if (name.empty() || self->GetName() == name)
-            return self;
-    }
-    return ObjectAccessor::FindPlayerByName(name);
-}
-
 /// Pontos gastos = soma dos ranks.
 uint32 SpentPoints(uint64 guid)
 {
@@ -517,6 +508,9 @@ public:
             { "spec",   HandleSpecCommand,   rbac::RBAC_PERM_COMMAND_GM, Console::Yes },
             { "talent", HandleTalentCommand, rbac::RBAC_PERM_COMMAND_GM, Console::Yes },
             { "info",   HandleInfoCommand,   rbac::RBAC_PERM_COMMAND_GM, Console::Yes },
+            { "probe",  HandleKitProbe,      rbac::RBAC_PERM_COMMAND_GM, Console::Yes },
+            { "cast",   HandleKitCast,       rbac::RBAC_PERM_COMMAND_GM, Console::Yes },
+            { "set",    HandleKitSet,        rbac::RBAC_PERM_COMMAND_GM, Console::Yes },
         };
         static Acore::ChatCommands::ChatCommandTable root = { { "avalon", avalonTable } };
         return root;
@@ -525,7 +519,7 @@ public:
 private:
     static bool HandleSpecCommand(ChatHandler* handler, std::string const& playerName, uint32 specId)
     {
-        Player* player = ResolvePlayer(handler, playerName);
+        Player* player = AvalonResolvePlayer(handler, playerName);
         if (!player)
         {
             handler->SendSysMessage("Avalon: jogador nao encontrado (precisa estar online).");
@@ -555,7 +549,7 @@ private:
 
     static bool HandleTalentCommand(ChatHandler* handler, std::string const& playerName, uint32 nodeId)
     {
-        Player* player = ResolvePlayer(handler, playerName);
+        Player* player = AvalonResolvePlayer(handler, playerName);
         if (!player)
         {
             handler->SendSysMessage("Avalon: jogador nao encontrado (precisa estar online).");
@@ -587,7 +581,7 @@ private:
 
     static bool HandleInfoCommand(ChatHandler* handler, std::string const& playerName)
     {
-        Player* player = ResolvePlayer(handler, playerName);
+        Player* player = AvalonResolvePlayer(handler, playerName);
         if (!player)
         {
             handler->SendSysMessage("Avalon: jogador nao encontrado (precisa estar online).");
